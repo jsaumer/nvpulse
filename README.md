@@ -12,9 +12,10 @@ It also works as a drop-in front end for `nvidia-smi`. Pass it a flag it doesn't
 own (`-q`, `-L`, `--query-gpu=…`) or pipe its output, and it hands off to the real
 `nvidia-smi` unchanged, so scripts and muscle memory keep working.
 
-> **Status:** alpha (v0.3). Validated on one consumer desktop card so far. Reports
-> from laptops, multi-GPU boxes, datacenter cards and WSL are very welcome:
-> `nvpulse --dump` prints a snapshot that is safe to paste into an issue.
+> **Status:** alpha (v0.3). Validated on one consumer desktop card so far; laptops,
+> multi-GPU boxes, datacenter cards, container hosts and WSL are untested. If
+> something looks wrong, `nvpulse --dump` prints a snapshot that is safe to attach
+> to an issue. See the [roadmap](docs/roadmap.md) for what's next.
 
 ## Features
 

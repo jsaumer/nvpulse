@@ -41,6 +41,12 @@ pytest
   values recorded from real hardware. Output from `nvpulse --dump` is a good
   source for more of these.
 - `tests/test_security.py` holds a regression test for every hardening measure.
+- `tests/test_config.py` covers the settings file and how flags layer over it;
+  `tests/test_once.py` covers `--once`.
+
+CI also runs the suite on the oldest dependency versions `pyproject.toml` allows.
+To do that locally, install them over a dev install in a spare virtualenv; the
+exact pins are in the `test-minimum` job of `.github/workflows/ci.yml`.
 
 If you change anything visual, regenerate the screenshots and include them in the PR:
 
@@ -140,5 +146,7 @@ Please don't use public issues. See [SECURITY.md](SECURITY.md).
 
 ## Reporting bugs
 
-Please include the output of `nvpulse --version` and `nvidia-smi -L`, your
-driver version, your terminal emulator, and a screenshot if it's visual.
+Please include the output of `nvpulse --version` and `nvpulse --dump` (it holds
+the driver and library versions and every reading, and leaves out hostnames,
+UUIDs, PIDs, user names and command lines), your terminal emulator, and a
+screenshot if it's visual. If a settings file is involved, attach it too.

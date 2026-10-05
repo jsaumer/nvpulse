@@ -28,24 +28,58 @@ Rough priorities, not promises. Open an issue if you'd like to push something up
 - CI on the oldest supported versions and on Python 3.14
 - WSL: passthrough looks in `/usr/lib/wsl/lib` (untested on real WSL)
 
-## v0.4: more hardware, events and history
-- [ ] Validate on more hardware we can reach. Covered so far: one consumer
-      desktop card (RTX 4070 SUPER, zero-RPM idle fans). Still open: multi-GPU,
-      workstation, datacenter, a real container host (the UNIT column is only
-      tested against documented cgroup layouts), and two with known risks:
+## Now: run 0.3 and collect feedback
+Three releases landed in quick succession, and most of the newer screens have
+only been checked through headless renders and simulated data. Before more
+features: use 0.3 day to day, note what feels wrong, and try it on whatever other
+machines are within reach. Fixes from that go out as 0.3.x.
+
+## v0.4: prove it, then record it
+In this order:
+- [ ] **Hardware check.** One command that prints a pass / fail report on any
+      machine, so validating a new box takes minutes. It should: compare every
+      reading with `nvidia-smi` (versions, memory, power, temperature, clocks,
+      fans, thresholds, process list); start a throwaway GPU process and
+      SIGTERM / SIGKILL it through the dashboard's own kill path; open and
+      close the detail view repeatedly under fast polling; send SIGTERM and
+      SIGHUP and confirm the terminal is restored; exercise passthrough,
+      including a wrapper `nvidia-smi` on `PATH`; and measure CPU at the default
+      settings, `--no-anim` and a short poll interval
+- [ ] Run that check on more hardware. Covered so far: one consumer desktop card
+      (RTX 4070 SUPER, zero-RPM idle fans). Still open: multi-GPU, workstation,
+      datacenter, a real container host (the UNIT column is only tested against
+      documented cgroup layouts), and two with known risks:
       - WSL: confirm passthrough finds `/usr/lib/wsl/lib/nvidia-smi`, and that
         the dashboard copes with what the WSL driver doesn't report
-      - laptops with hybrid graphics: polling may keep the GPU from sleeping
-- [ ] Process tree view (parent / child rows)
-- [ ] XID error and throttle event log panel
-- [ ] Optional CSV/JSONL recording (`--record file`) and replay (`--replay file`)
-- [ ] MIG instance awareness (needs datacenter hardware or contributed dumps)
-- [ ] Alerts on more readings (power, utilisation, fan failure)
+      - laptops with hybrid graphics: polling may keep the GPU from sleeping.
+        Check the device's runtime power state before touching NVML, and show
+        "suspended" instead of waking it
+- [ ] **Recording and replay** (`--record file`, `--replay file`). A recording
+      made on another machine replays here, which makes it a way to reproduce
+      bugs and a source of realistic test data. Recordings follow the `--dump`
+      rules: no hostnames, UUIDs, PIDs, user names or command lines
+- [ ] **Event log panel**: XID errors, throttling and alerts with timestamps, so
+      what happened while nobody was watching is still there
+- [ ] Totals per user and per unit: who, or which container, holds the VRAM
+- [ ] `nvpulse --once --json`: machine-readable output with process names, for
+      scripts and cron (`--dump` leaves names out on purpose)
+- [ ] Alerts on more readings: a fan that is stopped while the card is hot,
+      power, utilisation
+- [ ] Friendly container names, opt-in. Needs a decision first: names come from
+      running `docker ps` or from root-only files, and nvpulse does neither today
 - [ ] Drop Python 3.10 once it is out of support (lets `tomli` go)
+- [ ] A release script that updates the version, the changelog and the README's
+      install line together
 
 ## Later / ideas
-- [ ] Remote mode: poll several hosts over SSH and show them in one grid
+- [ ] Several hosts in one view, over SSH. Probably the most useful addition
+      for looking after other people's machines, but large, and it means nvpulse
+      running `ssh`: design and security review first
+- [ ] MIG instance awareness (needs datacenter hardware or a recording)
 - [ ] Prometheus / DCGM exporter as an alternative backend
+
+Dropped: the process tree view. Parent / child rows rarely mean much for GPU
+processes, and totals per user and per unit answer the useful part.
 
 ## If the project goes public
 The repository is private for now, and people with access install from GitHub
@@ -55,3 +89,4 @@ at a tag. These only matter if that changes:
 - Decide on PyPI. The release workflow exists and only runs by hand
 - Packaging: AUR, Homebrew (Linuxbrew), standalone zipapp
 - An issue template that asks for `nvpulse --dump` output
+- Rewrite the reporting section of `SECURITY.md` for public use

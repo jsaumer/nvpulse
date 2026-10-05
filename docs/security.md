@@ -112,6 +112,8 @@ again would loop forever.
   or a PCI bus ID, matched by anchored regular expressions. Anything else is
   rejected before a backend is created.
 - History buffers are fixed-size deques. The PID info cache is pruned every poll.
+- The `/` filter is capped at 80 characters, and `/proc/<pid>/cgroup` is read up
+  to 8 KiB. Settings-file values are held to the same ranges as the flags.
 - The `/proc/<pid>/cmdline` fallback reads at most 64 KiB.
 
 ### 6. Reduced UI surface

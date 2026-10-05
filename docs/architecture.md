@@ -9,7 +9,7 @@ everything out.
              ┌──────────────┐   argv / TTY check   ┌─────────────────────┐
   user ────▶ │   cli.py     │ ───────────────────▶ │ real nvidia-smi     │  (passthrough: os.execv)
              └──────┬───────┘                      └─────────────────────┘
-                    │ dashboard mode
+                    │ dashboard mode   (--once and --dump print one snapshot and exit instead)
                     ▼
       ┌─────────────────────────┐        ┌────────────────────────────┐
       │ backend (Backend iface) │        │ procinfo.enrich()          │
@@ -184,9 +184,12 @@ unit-test and reuse.
 - **`history_graph`:** a multi-row braille area graph for the detail view, two
   samples per cell across and four levels per row, coloured by row.
 
-A card frame (fan, four bars, sparklines) costs about 1.3 ms in CPython, so eight
-GPUs at 20 fps uses about 20 % of one core at worst. `--no-anim` cuts that to nearly
-nothing.
+Drawing a card frame (fan, four bars, sparklines) takes about 1.3 ms in CPython,
+but that is the smaller part of the cost: Textual re-sends every cell of a
+widget it repaints. Measured on real hardware, one GPU at the default 20 fps
+uses about a fifth of one core, and `--no-anim` about 7 %. The figures are in
+[troubleshooting.md](troubleshooting.md). A card that isn't changing is not
+repainted at all.
 
 ## Layout (`ui/app.py`)
 

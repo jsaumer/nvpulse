@@ -45,7 +45,8 @@ set -as terminal-features ",*:RGB"
 
 ### High CPU use
 
-The animation runs at 20 fps by default, and every frame repaints the GPU cards.
+The animation runs at 20 fps by default, and each frame repaints every card
+that is changing (a card with stopped fans and steady readings is left alone).
 Lower it with `--fps 10`, or use `--no-anim` (or press `a`) for a static display.
 Short poll intervals cost CPU too, more so on a desktop where dozens of graphics
 clients fill the process table.

@@ -29,6 +29,12 @@ README's install line carries the current tag. Release steps are in `CONTRIBUTIN
 the release workflow, and keep public-facing work under "If the project goes
 public" in `docs/roadmap.md`.
 
+**Where things stand (after v0.3.0).** The owner is running 0.3 to collect
+feedback before more features. Fixes go out as 0.3.x. The next planned work is
+the hardware check at the top of v0.4 in `docs/roadmap.md`. Much of v0.2 and
+v0.3 has only been verified with mocks, fakes and headless renders on one
+desktop GPU: treat reports from real use as likely real bugs.
+
 ## Layout
 
 ```

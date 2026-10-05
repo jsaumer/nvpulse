@@ -65,8 +65,11 @@ temperature lags utilisation, fans chase temperature, and processes spawn and
 exit over time. It takes a `seed` (deterministic tests) and a `clock` (inject
 time).
 
-`procinfo.enrich()` fills in user, name and command line through `psutil`, with
-results cached per PID and keyed on create-time so recycled PIDs aren't mislabelled.
+`procinfo.enrich()` fills in user, name, command line and start time through
+`psutil`, with results cached per PID and keyed on create-time so recycled PIDs
+aren't mislabelled. Every string is passed through `sanitize.clean()` (and
+`redact()` unless `--no-redact`) before it leaves this function. Kills go through
+`killer.py`. Both are described in [security.md](security.md).
 
 ## Two clocks
 

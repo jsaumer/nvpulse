@@ -16,6 +16,7 @@ class ProcessInfo:
     name: str = "?"
     user: str = "?"
     cmdline: str = ""
+    started: float | None = None  # process create time (epoch s), used to detect PID reuse
 
 
 @dataclass(slots=True)

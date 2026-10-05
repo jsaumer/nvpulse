@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from ..sanitize import clean
 from .models import Backend, GpuSnapshot, ProcessInfo, SystemInfo
 
 try:  # nvidia-ml-py exposes the module as ``pynvml``
@@ -27,10 +28,10 @@ def _safe(fn: Callable[..., Any], *args: Any, default: Any = None) -> Any:
         return default
 
 
-def _s(value: Any) -> str:
+def _s(value: Any, max_len: int = 128) -> str:
     if isinstance(value, bytes):
-        return value.decode(errors="replace")
-    return str(value)
+        value = value.decode(errors="replace")
+    return clean(value, max_len)
 
 
 class NvmlUnavailable(RuntimeError):
@@ -56,7 +57,7 @@ class NvmlBackend(Backend):
             driver_version=_s(_safe(N.nvmlSystemGetDriverVersion, default="?")),
             cuda_version=cuda_str,
             nvml_version=_s(_safe(N.nvmlSystemGetNVMLVersion, default="?")),
-            hostname=socket.gethostname(),
+            hostname=clean(socket.gethostname(), 64),
         )
 
     def device_count(self) -> int:

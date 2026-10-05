@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import signal
 import time
 
 from textual import work
@@ -13,7 +12,9 @@ from textual.containers import Container, Vertical, VerticalScroll
 from textual.widgets import Footer, Static
 
 from ..backend.models import Backend, GpuSnapshot
+from ..killer import KillRefused, KillTarget, check_pid, prepare, send
 from ..procinfo import enrich
+from ..sanitize import clean
 from .modals import MODAL_CSS, ConfirmKill, HelpScreen
 from .widgets import SORT_LABEL, GpuCard, HeaderBar, ProcessTable
 
@@ -24,6 +25,9 @@ INTERVALS = (0.25, 0.5, 1.0, 2.0, 5.0, 10.0)
 
 class NvPulse(App):
     TITLE = "nvpulse"
+    # The built-in command palette adds actions we don't need (theme switching,
+    # "save screenshot" to the current directory). Keep the surface minimal.
+    ENABLE_COMMAND_PALETTE = False
     CSS = (
         """
     Screen { background: #0d1117; layers: base; }
@@ -61,8 +65,13 @@ class NvPulse(App):
         indices: list[int] | None = None,
         animate: bool = True,
         compact: bool | None = None,
+        redact: bool = True,
+        read_only: bool = False,
     ) -> None:
         super().__init__()
+        self.redact = redact
+        self.read_only = read_only
+        self.as_root = hasattr(os, "geteuid") and os.geteuid() == 0
         self.backend = backend
         self.interval = interval
         self.fps = max(1.0, fps)
@@ -79,6 +88,8 @@ class NvPulse(App):
     def compose(self) -> ComposeResult:
         self.header = HeaderBar(self.backend.system_info())
         self.header.interval = self.interval
+        self.header.as_root = self.as_root
+        self.header.read_only = self.read_only
         yield self.header
         with VerticalScroll(id="gpus-scroll"):
             yield Container(id="gpus")
@@ -90,7 +101,7 @@ class NvPulse(App):
         self.table = self.query_one(ProcessTable)
         self._update_proc_title()
         snaps = self.backend.poll(self.indices)
-        enrich([p for s in snaps for p in s.processes])
+        enrich([p for s in snaps for p in s.processes], redact_secrets=self.redact)
         self.apply_snapshots(snaps)
         if not snaps:
             self.query_one("#gpus").mount(Static("No NVIDIA GPUs found.", id="empty"))
@@ -131,9 +142,9 @@ class NvPulse(App):
     def _poll_worker(self) -> None:
         try:
             snaps = self.backend.poll(self.indices)
-            enrich([p for s in snaps for p in s.processes])
+            enrich([p for s in snaps for p in s.processes], redact_secrets=self.redact)
         except Exception as exc:  # keep the UI alive on driver hiccups
-            self.call_from_thread(self.notify, f"poll failed: {exc}", severity="error")
+            self.call_from_thread(self._say, f"poll failed: {exc}", "error")
             snaps = None
         finally:
             self._polling = False
@@ -190,7 +201,7 @@ class NvPulse(App):
         self.header.interval = value
         self.poll_timer.stop()
         self.poll_timer = self.set_interval(self.interval, self.request_poll)
-        self.notify(f"poll every {value:g}s", timeout=1.5)
+        self._say(f"poll every {value:g}s", timeout=1.5)
 
     def action_faster(self) -> None:
         smaller = [i for i in INTERVALS if i < self.interval]
@@ -212,7 +223,7 @@ class NvPulse(App):
             card.animate_enabled = self.animate
         self.anim_timer.stop()
         self.anim_timer = self.set_interval(1.0 / (self.fps if self.animate else 2.0), self.animate_tick)
-        self.notify("animation " + ("on" if self.animate else "off"), timeout=1.5)
+        self._say("animation " + ("on" if self.animate else "off"), timeout=1.5)
 
     def action_sort(self) -> None:
         self.table.cycle_sort()
@@ -222,36 +233,60 @@ class NvPulse(App):
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
 
+    def _say(self, message: str, severity: str = "information", timeout: float | None = None) -> None:
+        """notify() with markup off: messages can contain process names or driver errors."""
+        self.notify(clean(message, 200), severity=severity, timeout=timeout, markup=False)
+
     def action_kill(self, force: bool) -> None:
+        if self.read_only:
+            self._say("read-only mode: signalling processes is disabled", "warning")
+            return
         sel = self.table.selected_process()
         if sel is None:
-            self.notify("no process selected", severity="warning")
+            self._say("no process selected", "warning")
             return
         gpu, pid = sel
-        name = next(
-            (p.cmdline or p.name for s in self._snaps for p in s.processes if p.pid == pid and p.gpu_index == gpu),
-            "?",
-        )
+        proc = next((p for s in self._snaps for p in s.processes if p.pid == pid and p.gpu_index == gpu), None)
+        if proc is None:
+            self._say("process list changed; select again", "warning")
+            return
+        target = KillTarget(gpu=gpu, pid=pid, started=proc.started, name=proc.cmdline or proc.name, user=proc.user)
+        is_mock = getattr(self.backend, "kill", None) is not None
+        try:
+            if is_mock:
+                check_pid(pid)  # simulated PIDs: never touch real processes
+            else:
+                prepare(target)  # pin with pidfd + verify start time
+        except KillRefused as exc:
+            self._say(str(exc), "warning")
+            return
 
         def done(ok: bool | None) -> None:
-            if ok:
-                self._send_signal(gpu, pid, force)
+            if not ok:
+                target.close()
+                return
+            self._send_signal(target, force, is_mock)
 
-        self.push_screen(ConfirmKill(pid, name, gpu, force), done)
+        self.push_screen(ConfirmKill(target, force, as_root=self.as_root), done)
 
-    def _send_signal(self, gpu: int, pid: int, force: bool) -> None:
-        mock_kill = getattr(self.backend, "kill", None)
+    def _send_signal(self, target: KillTarget, force: bool, is_mock: bool) -> None:
+        live = {(p.gpu_index, p.pid) for s in self._snaps for p in s.processes}
         try:
-            if mock_kill is not None:
-                mock_kill(gpu, pid)
+            if is_mock:
+                self.backend.kill(target.gpu, target.pid)  # type: ignore[attr-defined]
+                msg = f"sent {'SIGKILL' if force else 'SIGTERM'} to PID {target.pid} (mock)"
             else:
-                os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
-            self.notify(f"sent {'SIGKILL' if force else 'SIGTERM'} to {pid}")
+                msg = send(target, force, live)
+            self._say(msg)
             self.request_poll()
+        except KillRefused as exc:
+            self._say(str(exc), "warning")
         except ProcessLookupError:
-            self.notify(f"PID {pid} already exited", severity="warning")
+            self._say(f"PID {target.pid} already exited", "warning")
         except PermissionError:
-            self.notify(f"permission denied for PID {pid} (run with sudo?)", severity="error")
+            self._say(f"permission denied for PID {target.pid} (owned by {target.user})", "error")
+        except OSError as exc:
+            self._say(f"could not signal PID {target.pid}: {exc.strerror}", "error")
 
     def on_unmount(self) -> None:
         self.backend.close()

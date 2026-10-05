@@ -6,6 +6,31 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- Sanitise all untrusted text (process names, users, command lines, NVML strings):
+  control, bidi and invisible characters are shown as visible escapes, and lengths
+  are capped. Previously, ESC sequences in another user's argv reached the terminal.
+- Render untrusted text without markup. Previously, a process named `[/]` crashed
+  the app when its kill dialog opened, and crafted names could forge dialog text.
+- Kill hardening: pidfd pinning plus start-time check against PID reuse; refuse
+  PID ≤ 1, self and parent; require the process to still be on the GPU; show the
+  owner; root warning.
+- Passthrough hardening: skip empty and relative `PATH` entries; refuse
+  world-writable binaries and directories (and non-root-owned ones when root);
+  validate `NVPULSE_REAL_SMI`; stop recursion loops; `allow_abbrev=False`.
+- Mask likely secrets in command lines by default (`--no-redact` to disable).
+- Clamp `--interval`, `--fps`, `--mock` and `-i`; reject NaN and infinity.
+- Disable Textual's command palette.
+- CI: least-privilege token, SHA-pinned actions, `persist-credentials: false`,
+  `pip-audit` job, Dependabot.
+
+### Added
+- `--read-only` flag, and **ROOT** / **READ-ONLY** header badges.
+- `SECURITY.md` and `docs/security.md`.
+
+### Changed
+- Minimum Textual version raised to 4.0. Older versions fail at runtime.
+
 ## [0.1.0] - 2026-10-04
 
 ### Added

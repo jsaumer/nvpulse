@@ -16,7 +16,8 @@ nvpulse talks to the driver through NVML (`libnvidia-ml.so.1`), the same library
 - **Containers / PID namespaces:** NVML reports host PIDs. If nvpulse runs inside a
   container, `psutil` can't see them. Run it on the host, or with `--pid=host`.
 - **Permissions:** another user's process details can be hidden (for example with
-  `hidepid` on `/proc`). Try `sudo nvpulse`.
+  `hidepid` on `/proc`). Running as root shows them, but read
+  [docs/security.md](security.md) first and consider `sudo nvpulse --read-only`.
 - **WSL2:** the driver often doesn't expose per-process information or memory,
   so the table may be empty or show "n/a". If `nvidia-smi` inside WSL shows the
   same, it's a driver limitation.
@@ -56,6 +57,27 @@ binary isn't on `PATH`, set `NVPULSE_REAL_SMI=/path/to/nvidia-smi`.
 
 ### Can't kill a process
 
-`k`/`K` send SIGTERM/SIGKILL as the user running nvpulse. Other users' processes
-need `sudo`. Some processes (Xorg, compositors) will come back or take the
-desktop down with them, so be careful.
+`k`/`K` send SIGTERM/SIGKILL as the user running nvpulse, so other users'
+processes need root. nvpulse also refuses on purpose when:
+
+- the PID is 0 or 1, or belongs to nvpulse or its parent shell
+- the PID was reused by a different process since the last poll
+- the process is no longer using that GPU
+- you started nvpulse with `--read-only`
+
+Some processes (Xorg, compositors) will come back or take the desktop down with
+them, so be careful.
+
+### Parts of a command line show as `•••` or `\x1b`
+
+That's deliberate. Values that look like secrets (`--password=…`, `HF_TOKEN=…`,
+`user:pass@` in URLs) are masked; use `--no-redact` to see them. Control and
+invisible characters are shown as escapes so they can't affect your terminal or
+disguise a process. See [security.md](security.md).
+
+### `passthrough loop detected` / `ignoring NVPULSE_REAL_SMI`
+
+Your `nvidia-smi` on `PATH` is a wrapper that runs nvpulse, or the override points
+somewhere unsafe. Set `NVPULSE_REAL_SMI` to the driver's binary, usually
+`/usr/bin/nvidia-smi`: an absolute path that isn't writable by other users (and
+is owned by root if you run nvpulse as root).

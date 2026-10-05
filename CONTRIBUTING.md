@@ -51,6 +51,8 @@ python scripts/make_screenshots.py --gif    # + demo.gif (needs playwright + pil
 src/nvpulse/
   cli.py              argument parsing, nvidia-smi passthrough, backend selection
   procinfo.py         PID -> user / name / cmdline enrichment (psutil)
+  sanitize.py         untrusted-text cleaning + secret redaction
+  killer.py           safe signalling (pidfd pinning, PID-reuse checks)
   backend/
     models.py         GpuSnapshot / ProcessInfo / SystemInfo + Backend interface
     nvml.py           real hardware via NVML (nvidia-ml-py)
@@ -73,6 +75,10 @@ See [docs/architecture.md](docs/architecture.md) for how data and animation flow
 - **Ruff** handles linting and formatting (config in `pyproject.toml`, line length 120).
 - **Keep rendering pure.** Put drawing logic in `ui/render.py` as functions that
   return `rich.text.Text`, so it stays unit-testable. Widgets only lay out.
+- **Treat process data as hostile.** Anything from `/proc`, psutil or NVML must go
+  through `sanitize.clean()` before display, and must never be rendered as
+  markup: use `rich.text.Text`, `markup=False`, or `textual.markup.escape`. For
+  notifications use `App._say()`. See [docs/security.md](docs/security.md).
 - **Never let a missing metric crash the UI.** Backends return `None` for anything
   unsupported, and the UI shows "n/a".
 - **Keep NVML off the UI thread.** All backend polling goes through the threaded worker.
@@ -87,6 +93,10 @@ See [docs/architecture.md](docs/architecture.md) for how data and animation flow
 2. Populate it in `backend/nvml.py` through `_safe(...)`, and in `backend/mock.py`.
 3. Render it in `GpuCard` (and add a `Tween` key if it should animate).
 4. Add a test.
+
+## Reporting security issues
+
+Please don't use public issues. See [SECURITY.md](SECURITY.md).
 
 ## Reporting bugs
 

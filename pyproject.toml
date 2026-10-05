@@ -30,7 +30,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "textual>=0.80",
+    "textual>=4.0",
     "rich>=13.7",
     "nvidia-ml-py>=12.535",
     "psutil>=5.9",
@@ -60,7 +60,7 @@ path = "src/nvpulse/__init__.py"
 packages = ["src/nvpulse"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/nvpulse", "tests", "docs", "README.md", "CHANGELOG.md", "LICENSE"]
+include = ["src/nvpulse", "tests", "docs", "README.md", "CHANGELOG.md", "SECURITY.md", "LICENSE"]
 exclude = ["docs/images"]
 
 [tool.pytest.ini_options]

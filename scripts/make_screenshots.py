@@ -36,6 +36,7 @@ async def stills() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for name, n, size, keys in SHOTS:
         app = NvPulse(MockBackend(n, seed=7), interval=0.25)
+        app.as_root = False  # containers/CI often run as root; keep the ROOT badge out of docs
         async with app.run_test(size=size) as pilot:
             await pilot.pause(4.0)  # let history and sparklines fill a little
             for key in keys:
@@ -52,6 +53,7 @@ async def gif(frames: int = 36, fps: int = 12) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         svgs = []
         app = NvPulse(MockBackend(2, seed=11), interval=0.25, fps=fps)
+        app.as_root = False
         async with app.run_test(size=(130, 30)) as pilot:
             await pilot.pause(4.0)
             for i in range(frames):

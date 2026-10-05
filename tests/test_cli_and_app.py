@@ -32,12 +32,18 @@ def test_parse_indices():
         cli.parse_indices("GPU-abc")
 
 
-def test_passthrough_strips_own_flags(monkeypatch):
+def test_passthrough_strips_own_flags(monkeypatch, tmp_path):
+    fake = tmp_path / "nvidia-smi"
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
     calls = {}
-    monkeypatch.setenv("NVPULSE_REAL_SMI", "/usr/bin/nvidia-smi")
-    monkeypatch.setattr(cli.os, "execv", lambda path, args: calls.update(path=path, args=args))
+    monkeypatch.delenv(cli.LOOP_GUARD, raising=False)
+    monkeypatch.setenv("NVPULSE_REAL_SMI", str(fake))
+    monkeypatch.setattr(cli.os, "execve", lambda path, args, env: calls.update(path=path, args=args, env=env))
     cli.passthrough(["--classic", "-q"])
-    assert calls == {"path": "/usr/bin/nvidia-smi", "args": ["/usr/bin/nvidia-smi", "-q"]}
+    assert calls["path"] == str(fake)
+    assert calls["args"] == [str(fake), "-q"]
+    assert calls["env"][cli.LOOP_GUARD] == "1"
 
 
 def test_mock_backend_shapes():

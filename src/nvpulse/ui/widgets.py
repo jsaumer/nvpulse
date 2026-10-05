@@ -8,10 +8,12 @@ from collections import deque
 from rich.console import Group
 from rich.style import Style
 from rich.text import Text
+from textual.markup import escape as escape_markup
 from textual.widget import Widget
 from textual.widgets import DataTable
 
 from ..backend.models import GpuSnapshot, ProcessInfo, SystemInfo
+from ..sanitize import clean
 from . import render as R
 
 HISTORY = 240
@@ -32,6 +34,8 @@ class HeaderBar(Widget):
         self.mem_total = 0
         self.interval = 1.0
         self.paused = False
+        self.as_root = False
+        self.read_only = False
         self.t = 0.0
 
     def set_totals(self, snaps: list[GpuSnapshot]) -> None:
@@ -66,6 +70,12 @@ class HeaderBar(Widget):
             t.append(f"{R.fmt_gib(self.mem_used, 0)}/{R.fmt_gib(self.mem_total, 0)} GiB", Style(color="#a5b4fc"))
 
         right = Text(no_wrap=True)
+        if self.as_root:
+            right.append(" ROOT ", Style(color="#0d1117", bgcolor="#f85149", bold=True))
+            right.append(" ")
+        if self.read_only:
+            right.append(" READ-ONLY ", Style(color="#0d1117", bgcolor="#58a6ff", bold=True))
+            right.append(" ")
         if self.paused:
             right.append(" ❚❚ PAUSED ", Style(color="#0d1117", bgcolor="#d29922", bold=True))
         else:
@@ -131,13 +141,14 @@ class GpuCard(Widget):
         if not self.animate_enabled:
             self.tw.snap()
 
-        self.border_title = f" GPU {s.index} · {s.name.replace('NVIDIA ', '')} "
+        # border titles are parsed as markup: escape driver-supplied strings
+        self.border_title = escape_markup(f" GPU {s.index} · {clean(s.name.replace('NVIDIA ', ''), 48)} ")
         bits = [s.bus_id[-12:] if s.bus_id else ""]
         if s.pstate is not None:
             bits.append(f"P{s.pstate}")
         if s.pcie_gen and s.pcie_width:
             bits.append(f"PCIe {s.pcie_gen}.0 x{s.pcie_width}")
-        self.border_subtitle = " " + " · ".join(b for b in bits if b) + " "
+        self.border_subtitle = escape_markup(clean(" " + " · ".join(b for b in bits if b) + " ", 80))
         load = (s.util_gpu or 0) / 100
         self.styles.border = ("round", R.mix("#30363d", R.gradient(R.UTIL_GRAD, load), 0.25 + 0.6 * load))
         self.refresh()
@@ -395,11 +406,11 @@ class ProcessTable(DataTable):
             self.add_row(
                 Text(str(p.gpu_index), style=R.ACCENT),
                 Text(str(p.pid), style=R.TEXT),
-                Text(p.user[:10], style=R.LABEL),
+                Text(clean(p.user, 10), style=R.LABEL),
                 Text(p.kind, style=kind_color),
                 sm,
                 vram,
-                Text(p.cmdline or p.name, style=R.TEXT, overflow="ellipsis", no_wrap=True),
+                Text(clean(p.cmdline or p.name, 1024), style=R.TEXT, overflow="ellipsis", no_wrap=True),
                 key=f"{p.gpu_index}:{p.pid}",
             )
         if selected is not None:

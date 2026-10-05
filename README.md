@@ -30,6 +30,9 @@ own (`-q`, `-L`, `--query-gpu=…`) or pipe its output, and it hands off to the 
 - **Adaptive layout**: a large card for a single GPU, a responsive grid for many.
 - **nvidia-smi passthrough** for anything non-interactive.
 - **Mock mode** (`--mock N`) to try it with no GPU at all.
+- **Safe with hostile input**: other users' process names can't inject terminal
+  escape sequences, secrets in command lines are masked, and kills are pinned
+  to the exact process with a pidfd.
 
 | Single GPU | Multi-GPU |
 |---|---|
@@ -62,6 +65,8 @@ nvpulse --compact          # force compact cards (--expanded for the large layou
 nvpulse --no-anim          # static, low-CPU mode
 nvpulse --fps 30           # smoother animation (default 20)
 nvpulse --mock 4           # four simulated GPUs, no hardware needed
+nvpulse --read-only        # disable k/K (good for shared screens or sudo)
+nvpulse --no-redact        # show command lines verbatim (secrets are masked by default)
 ```
 
 ### Passthrough to nvidia-smi
@@ -96,13 +101,16 @@ alias nvidia-smi='nvpulse'
 | `↑` `↓` | Move in the process table |
 | `?` | Help |
 
-Signalling another user's process needs the right permissions, e.g. `sudo nvpulse`.
+You can only signal processes you're allowed to signal. nvpulse doesn't need root,
+and running it as root is discouraged; if you do, the header shows a **ROOT**
+badge and `--read-only` is a good idea. See [Security](docs/security.md).
 
 ## Documentation
 
 - [Architecture](docs/architecture.md): how the pieces fit together
 - [Roadmap](docs/roadmap.md): what's planned next
 - [Troubleshooting](docs/troubleshooting.md): NVML errors, containers, WSL, fonts
+- [Security model](docs/security.md): threat model and hardening ([report a vulnerability](SECURITY.md))
 - [Contributing](CONTRIBUTING.md): dev setup, tests and conventions
 - [Changelog](CHANGELOG.md)
 

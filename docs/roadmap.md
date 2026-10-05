@@ -73,14 +73,17 @@ In this order:
       install line together
 
 ## Later / ideas
-- [ ] Several hosts in one view, over SSH. Probably the most useful addition
-      for looking after other people's machines, but large, and it means nvpulse
-      running `ssh`: design and security review first
 - [ ] MIG instance awareness (needs datacenter hardware or a recording)
-- [ ] Prometheus / DCGM exporter as an alternative backend
 
-Dropped: the process tree view. Parent / child rows rarely mean much for GPU
-processes, and totals per user and per unit answer the useful part.
+## Not planned
+- **Remote or multi-host mode.** nvpulse is local only: it shows the machine it
+  runs on and never connects to another one. Reaching into other hosts over SSH
+  was considered and rejected as too much of a security risk. To look at
+  another machine, run nvpulse there (`ssh host nvpulse --once` works today,
+  with your own SSH doing the connecting).
+- **Network backends** (Prometheus, DCGM): ruled out by the same decision.
+- **Process tree view.** Parent / child rows rarely mean much for GPU processes,
+  and totals per user and per unit answer the useful part.
 
 ## If the project goes public
 The repository is private for now, and people with access install from GitHub

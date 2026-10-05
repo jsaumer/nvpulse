@@ -99,7 +99,8 @@ before touching anything that displays process data, signals processes or execs 
    pass `_trusted_executable()`.
 4. **Keep NVML off the UI thread.**
 5. **No network access, telemetry or persistent writes** without an explicit decision
-   recorded in `docs/security.md`. `--dump` writes to stdout only and must stay
+   recorded in `docs/security.md`. nvpulse is local only by the owner's decision:
+   no remote, SSH or multi-host mode, and no network backends. Don't propose them. `--dump` writes to stdout only and must stay
    free of hostnames, UUIDs, PIDs, user names and command lines. The settings
    file is read, never written, and no setting may run or name a program.
 6. **GitHub Actions stay pinned to full commit SHAs** with a `# vX.Y.Z` comment.

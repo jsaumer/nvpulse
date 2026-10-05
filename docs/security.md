@@ -1,7 +1,9 @@
 # Security model
 
 nvpulse is a local, read-mostly terminal app. It doesn't listen on the network,
-store data or need privileges. Still, it displays data other people control, it
+connect to other machines, store data or need privileges. Local only is a
+standing decision, not an accident of scope: a remote or multi-host mode was
+considered and rejected as too much of a security risk. Still, it displays data other people control, it
 can send signals, and it can exec another binary, so those three areas are hardened.
 
 ## Threat model

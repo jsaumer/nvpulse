@@ -36,6 +36,7 @@ class ProcessInfo:
     user: str = "?"
     cmdline: str = ""
     started: float | None = None  # process create time (epoch s), used to detect PID reuse
+    unit: str = ""  # container ("docker:3f2a9c1b2d4e") or systemd service that owns the process
 
 
 @dataclass(slots=True)
@@ -69,6 +70,8 @@ class GpuSnapshot:
     pstate: int | None = None
     enc_util: float | None = None
     dec_util: float | None = None
+    enc_sessions: int | None = None  # active NVENC sessions
+    enc_fps: int | None = None  # their average frame rate
     pcie_gen: int | None = None
     pcie_width: int | None = None
     pcie_gen_max: int | None = None  # best this GPU can do in this slot
@@ -122,6 +125,24 @@ class GpuSnapshot:
         gen = self.pcie_gen_device_max or self.pcie_gen_max
         width = self.pcie_width_max or self.pcie_width
         return " ".join(b for b in (f"{gen}.0" if gen else "", f"x{width}" if width else "") if b)
+
+
+@dataclass(slots=True)
+class Alerts:
+    """User-configured limits. None means "don't watch this"."""
+
+    temp: float | None = None  # °C
+    vram: float | None = None  # percent of total
+    bell: bool = True
+
+    def active(self, s: GpuSnapshot) -> list[str]:
+        """Badge labels for the limits this snapshot has reached."""
+        out = []
+        if self.temp is not None and s.temp is not None and s.temp >= self.temp:
+            out.append("HOT")
+        if self.vram is not None and s.mem_pct is not None and s.mem_pct >= self.vram:
+            out.append("VRAM")
+        return out
 
 
 @dataclass(slots=True)

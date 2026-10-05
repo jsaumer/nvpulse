@@ -36,6 +36,11 @@ a process named `[/]` used to crash the app when its kill dialog opened.
   `\uNNNN` escape, and caps the length (command line 1024, name 64, user 32).
   Untrusted data can't inject escapes, and huge argv strings can't stall rendering.
 - NVML strings (GPU name, bus ID) and the hostname are cleaned the same way.
+- So are container and service names. They come from `/proc/<pid>/cgroup`, and
+  a cgroup can be named by whoever created it (any user, for user units and
+  rootless containers). nvpulse only reads that file: it never talks to a
+  container runtime's socket, which would be root-equivalent access.
+- `--once` prints the same cleaned strings as `Text`, to a terminal or a pipe.
 - Untrusted text is only rendered as `rich.text.Text` or with `markup=False`.
   Border titles are set as `Text` as well: Textual parses a *string* title as
   markup, and its `escape()` only covers complete `[tags]`, so a name cut off
@@ -126,7 +131,29 @@ placeholder, and reports processes as type and numbers only (no PID, name, user
 or command line), so it never reads `/proc` at all. Output is ASCII-only JSON,
 so no driver string can carry a control character to the terminal.
 
-### 8. Supply chain and CI
+### 8. Settings file: `src/nvpulse/config.py`
+
+**Risk.** A settings file can turn off command-line redaction and the read-only
+guard. If another user could write the file you read, they could quietly
+weaken both, or keep the dashboard from starting.
+
+**Decision.** The file is only ever read; nvpulse still writes nothing. It must
+be a regular file owned by the current user or root, and neither group- nor
+world-writable (the rule `ssh` applies to its own config). The check runs on
+the open file descriptor, so a symlink is judged by its target and the file
+can't be swapped between check and read. A file that fails is not read at all:
+named explicitly, that is an error; found at the default location (for example
+your own file when you run `sudo nvpulse`), it is skipped with a warning and
+the built-in defaults apply. It is read up to 64 KiB.
+Unknown keys, wrong types and out-of-range values are errors, with the same
+limits as the command-line flags. Key names from the file are quoted before
+they appear in an error message. Nothing in the file can run a command, name a
+binary to execute, or make nvpulse write or connect anywhere.
+
+The filter typed with `/` is the user's own input, but it is still shown as
+plain text, so typing `[/]` can't break the title it appears in.
+
+### 9. Supply chain and CI
 
 - The CI workflow runs with `permissions: contents: read`, and checkouts use
   `persist-credentials: false`.

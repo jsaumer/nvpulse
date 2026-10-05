@@ -8,10 +8,12 @@ import pytest
 
 from nvpulse import cli
 from nvpulse.backend.mock import MockBackend
+from nvpulse.backend.models import Alerts, ProcessInfo
+from nvpulse.procinfo import parse_cgroup
 from nvpulse.ui.app import NvPulse
 from nvpulse.ui.detail import DetailView, GpuDetailScreen
-from nvpulse.ui.modals import ConfirmKill
-from nvpulse.ui.widgets import GpuCard, ProcessTable, card_subtitle, card_title
+from nvpulse.ui.modals import ConfirmKill, ProcessInfoScreen
+from nvpulse.ui.widgets import GpuCard, ProcessTable, card_subtitle, card_title, matches, parse_filter
 
 
 @pytest.mark.parametrize(
@@ -388,3 +390,289 @@ def test_dump_survives_a_failing_detail(capsys):
 
     data = json.loads(dump.dumps(Broken(1, seed=3)))
     assert data["gpus"][0]["detail"] is None and data["gpus"][0]["mem_total"] > 0
+
+
+# ------------------------------------------------------------------- v0.3
+HEX = "3f2a9c1b2d4e" + "0" * 52
+
+
+@pytest.mark.parametrize(
+    "cgroup, unit",
+    [
+        (f"0::/system.slice/docker-{HEX}.scope", "docker:3f2a9c1b2d4e"),  # systemd cgroup driver
+        (f"0::/docker/{HEX}", "docker:3f2a9c1b2d4e"),  # cgroupfs driver
+        (f"12:devices:/docker/{HEX}\n1:name=systemd:/docker/{HEX}", "docker:3f2a9c1b2d4e"),  # cgroup v1
+        (
+            f"0::/user.slice/user-1000.slice/user@1000.service/user.slice/libpod-{HEX}.scope/container",
+            "podman:3f2a9c1b2d4e",
+        ),
+        (f"0::/kubepods.slice/kubepods-pod12.slice/cri-containerd-{HEX}.scope", "containerd:3f2a9c1b2d4e"),
+        (f"0::/kubepods.slice/kubepods-pod12.slice/crio-{HEX}.scope", "crio:3f2a9c1b2d4e"),
+        (f"11:devices:/kubepods/besteffort/pod9f/{HEX}", "k8s:3f2a9c1b2d4e"),
+        ("0::/lxc.payload.build01/system.slice/foo.service", "lxc:build01"),
+        ("0::/lxc/web/init.scope", "lxc:web"),
+        ("0::/system.slice/ollama.service", "ollama"),
+        ("0::/system.slice/system-getty.slice/getty@tty1.service", "getty@tty1"),
+        # a desktop session runs every app as a user unit: not worth a label
+        ("0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.kde.konsole@a1.service", ""),
+        ("0::/user.slice/user-1000.slice/user@1000.service", ""),
+        ("0::/user.slice/user-1000.slice/session-2.scope", ""),
+        ("0::/", ""),
+        ("", ""),
+        ("not a cgroup file", ""),
+        (f"0::/system.slice/docker-{HEX[:40]}.scope", ""),  # not a full container ID
+    ],
+)
+def test_parse_cgroup(cgroup, unit):
+    assert parse_cgroup(cgroup) == unit
+
+
+def proc(pid=1, gpu=0, kind="C", user="alice", name="python", cmd="python train.py", unit="", mem=1 << 30):
+    return ProcessInfo(gpu, pid, kind, mem, name=name, user=user, cmdline=cmd, unit=unit)
+
+
+def test_filter_terms():
+    p = proc(pid=4242, gpu=1, user="Alice", cmd="python train.py --model llama", unit="docker:3f2a9c1b2d4e")
+    for query in (
+        "llama",
+        "PYTHON llama",
+        "user:ali",
+        "gpu:1",
+        "pid:4242",
+        "type:c",
+        "unit:docker",
+        "gpu:1 user:alice train",
+    ):
+        assert matches(p, parse_filter(query)), query
+    for query in ("vllm", "user:bob", "gpu:0", "gpu:11", "pid:42", "type:g", "unit:podman", "llama user:bob"):
+        assert not matches(p, parse_filter(query)), query
+    assert parse_filter("") == [] and parse_filter("   ") == []
+    assert parse_filter("user:") == [("", "user:")]  # an empty field value is just text
+    assert parse_filter("http://x") == [("", "http://x")]  # unknown field: plain text too
+    assert len(parse_filter("x " * 500)) <= 40  # capped
+
+
+class Fixed(MockBackend):
+    """One mock GPU with exactly the processes given."""
+
+    def __init__(self, procs):
+        super().__init__(1, seed=1)
+        self.procs = procs
+
+    def poll(self, indices=None):
+        snaps = super().poll(indices)
+        snaps[0].processes = list(self.procs)
+        return snaps
+
+
+LONG = "/opt/app/bin/server " + "--flag=value " * 60
+
+
+async def test_process_table_fits_its_width():
+    procs = [proc(pid=10, cmd=LONG), proc(pid=11, cmd="short", unit="ollama", mem=2 << 30)]
+    for size, unit_shown in (((160, 40), True), ((100, 30), False)):  # narrow: UNIT gives way to the command
+        app = NvPulse(Fixed(procs), interval=3600)
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause(0.4)
+            table = app.query_one(ProcessTable)
+            assert table.virtual_size.width <= table.size.width  # no horizontal scrolling
+            cmd = table.get_cell("0:10", "cmd").plain
+            assert cmd.endswith("…") and len(cmd) < len(LONG)
+            assert ("unit" in [c.value for c in table.columns]) is unit_shown
+
+
+async def test_unit_column_hidden_columns_and_unit_sort():
+    plain = [proc(pid=10), proc(pid=11, mem=2 << 30)]
+    app = NvPulse(Fixed(plain), interval=3600, hidden_columns=["user", "sm"])
+    async with app.run_test(size=(140, 34)) as pilot:
+        await pilot.pause(0.4)
+        keys = [c.value for c in app.query_one(ProcessTable).columns]
+        assert keys == ["gpu", "pid", "type", "vram", "cmd"]  # hidden ones gone, no empty UNIT column
+
+    mixed = [
+        proc(pid=1, mem=9 << 30),
+        proc(pid=2, unit="ollama"),
+        proc(pid=3, unit="docker:aaaaaaaaaaaa"),
+        proc(pid=4, unit="ollama", mem=3 << 30),
+    ]
+    app = NvPulse(Fixed(mixed), interval=3600, sort="unit")
+    async with app.run_test(size=(140, 34)) as pilot:
+        await pilot.pause(0.4)
+        table = app.query_one(ProcessTable)
+        assert [k.value for k in table.rows] == ["0:3", "0:4", "0:2", "0:1"]  # grouped, unlabelled last
+
+
+async def test_filter_flow():
+    procs = [
+        proc(pid=10, cmd="ollama runner", user="ollama"),
+        proc(pid=11, cmd="python train.py"),
+        proc(pid=12, cmd="blender"),
+    ]
+    app = NvPulse(Fixed(procs), interval=3600)
+    async with app.run_test(size=(140, 34)) as pilot:
+        await pilot.pause(0.4)
+        table = app.query_one(ProcessTable)
+        box = app.query_one("#filter")
+        assert not box.display
+        await pilot.press("slash")
+        assert box.display and box.has_focus
+        await pilot.press(*"ollama")
+        assert table.row_count == 1 and table.filtered == 2
+        assert "filter: ollama" in str(app.query_one("#procs").border_title)
+
+        # letters typed into the filter are text, not commands
+        await pilot.press("k", "q")
+        await pilot.pause(0.2)
+        assert app.is_running and not isinstance(app.screen, ConfirmKill) and box.value == "ollamakq"
+        assert table.row_count == 0
+
+        await pilot.press("backspace", "backspace", "enter")
+        assert table.has_focus and box.display and table.row_count == 1  # filter stays, focus returns
+        await pilot.press("escape")
+        assert not box.display and box.value == "" and table.row_count == 3 and table.has_focus
+
+        await pilot.press("slash", "enter")  # opened and left empty: put it away again
+        assert not box.display
+
+
+async def test_process_info_screen_shows_the_full_command():
+    app = NvPulse(Fixed([proc(pid=10, cmd=LONG, unit="docker:3f2a9c1b2d4e")]), interval=3600)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause(0.4)
+        await pilot.press("i")
+        await pilot.pause(0.3)
+        assert isinstance(app.screen, ProcessInfoScreen)
+        from nvpulse.ui.modals import process_info
+
+        text = process_info(app.screen.proc).plain
+        assert LONG.strip() in text and "docker:3f2a9c1b2d4e" in text and "compute" in text
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert not isinstance(app.screen, ProcessInfoScreen)
+
+
+def test_alert_limits():
+    (snap,) = MockBackend(1, seed=1).poll()
+    snap.temp, snap.mem_used, snap.mem_total = 80, 90, 100
+    assert Alerts().active(snap) == []
+    assert Alerts(temp=80).active(snap) == ["HOT"]
+    assert Alerts(temp=81, vram=90).active(snap) == ["VRAM"]
+    assert Alerts(temp=70, vram=50).active(snap) == ["HOT", "VRAM"]
+    snap.temp = None
+    assert Alerts(temp=0).active(snap) == []
+    assert "HOT" not in card_title(snap, Alerts(temp=0)).plain and "VRAM" in card_title(snap, Alerts(vram=10)).plain
+
+
+async def test_alert_is_announced_once_per_crossing():
+    app = NvPulse(MockBackend(1, seed=1), interval=3600, alerts=Alerts(temp=85))
+    bells = []
+    app.bell = lambda: bells.append(1)
+    async with app.run_test(size=(120, 34)) as pilot:
+        await pilot.pause(0.3)
+        (snap,) = app._snaps
+        for temp in (40, 90, 91, 92, 40, 95):  # fed straight in: no race with the poll worker
+            snap.temp = temp
+            app.apply_snapshots([snap])
+        await pilot.pause(0.2)  # notifications are delivered as messages
+        said = [n.message for n in app._notifications if "HOT limit" in n.message]
+        assert len(said) == 2 and len(bells) == 2  # 90 and 95, not 91 or 92
+        assert "HOT" in str(app.query_one("#gpu-0").border_title)
+
+
+async def test_session_energy_adds_up():
+    app = NvPulse(MockBackend(1, seed=1), interval=1.0, cost_per_kwh=0.5, currency="€")
+    async with app.run_test(size=(120, 34)) as pilot:
+        await pilot.pause(0.3)
+        (snap,) = app._snaps
+        snap.power = 360.0
+        app.energy_wh[0] = 0.0
+        for gap, expected in ((1.0, 0.1), (1.0, 0.2), (600.0, 0.6)):  # a pause is capped at 3 intervals + 1 s
+            app._last_energy = time.monotonic() - gap
+            app._count_energy([snap])
+            assert app.energy_wh[0] == pytest.approx(expected, abs=0.01)
+        assert app._session(0) == "0.6 Wh (€0.00)"
+        assert app._session(7) == ""
+
+
+async def test_idle_card_skips_repaints_but_a_spinning_fan_does_not():
+    app = NvPulse(MockBackend(1, seed=1), interval=3600)
+    async with app.run_test(size=(120, 34)) as pilot:
+        await pilot.pause(0.3)
+        card = app.query_one(GpuCard)
+        snap = app._snaps[0]
+        snap.fan, snap.fans, snap.temp = 0.0, [0.0, 0.0], 40
+        card.update_snapshot(snap)
+        for _ in range(200):  # let the easing finish
+            card.tick(0.05)
+        paints = []
+        card.refresh = lambda *a, **k: paints.append(1)
+        for _ in range(20):
+            card.tick(0.05)
+        assert paints == []
+
+        snap.fan, snap.fans = 60.0, [60.0, 60.0]
+        del card.refresh
+        card.update_snapshot(snap)
+        card.refresh = lambda *a, **k: paints.append(1)
+        for _ in range(5):
+            card.tick(0.05)
+        assert len(paints) == 5
+
+
+async def test_detail_view_has_a_time_axis_and_ranges():
+    app = NvPulse(MockBackend(1, seed=7), interval=0.05)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause(0.8)
+        await pilot.press("enter")
+        await pilot.pause(0.4)
+        view = app.screen.query_one(DetailView)
+        text = "\n".join(line.plain for line in view.render().renderables)
+        assert text.count(" avg ") == 4 and text.rstrip().count("now") >= 1 and "┄" in text
+        assert view._span(100) > 0
+        assert "this session" in text
+
+
+def test_card_shows_encoder_sessions():
+    (snap,) = MockBackend(1, seed=1).poll()
+    card = GpuCard(0)
+    card.update_snapshot = None  # not mounted: only the pure line builder is used
+    card.snap = snap
+    snap.enc_util, snap.enc_sessions, snap.enc_fps = 34.0, 2, 60
+    assert "ENC 34% (2 sessions · 60 fps)" in card._detail_lines(100, False)[1].plain
+    snap.enc_sessions = 0
+    assert "session" not in card._detail_lines(100, False)[1].plain
+
+
+def test_wsl_fallback_location(tmp_path, monkeypatch):
+    smi = tmp_path / "nvidia-smi"
+    smi.write_text("#!/bin/sh\n")
+    smi.chmod(0o755)
+    monkeypatch.delenv("NVPULSE_REAL_SMI", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "nothing-here"))
+    monkeypatch.setattr(cli, "FALLBACK_SMI", (str(smi),))
+    assert cli.find_real_nvidia_smi() == str(smi)
+    smi.chmod(0o757)  # the fallback gets the same trust check as anything on PATH
+    assert cli.find_real_nvidia_smi() is None
+
+
+async def test_high_contrast_theme_marks_the_app():
+    app = NvPulse(MockBackend(1, seed=1), interval=3600, theme="high-contrast")
+    async with app.run_test(size=(120, 34)) as pilot:
+        await pilot.pause(0.3)
+        assert app.has_class("-hc")
+        assert app.query_one("#procs").styles.border_top[1].hex.lower() == "#8b949e"
+
+
+async def test_process_info_scrolls_when_the_command_is_taller_than_the_screen():
+    app = NvPulse(Fixed([proc(pid=10, cmd="x" * 1024)]), interval=3600)
+    async with app.run_test(size=(60, 24)) as pilot:
+        await pilot.pause(0.4)
+        await pilot.press("i")
+        await pilot.pause(0.3)
+        dialog = app.screen.query_one("#dialog")
+        assert dialog.max_scroll_y > 0  # the rest of the command is reachable
+        await pilot.press("end")
+        await pilot.pause(0.2)
+        dialog.scroll_end(animate=False)
+        await pilot.pause(0.2)
+        assert dialog.scroll_y == dialog.max_scroll_y

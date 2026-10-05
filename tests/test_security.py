@@ -280,3 +280,99 @@ async def test_gpu_name_is_never_parsed_as_markup(name):
         if name.isprintable():
             assert name in top  # shown literally
         assert app.is_running
+
+
+# ------------------------------------------------------------- v0.3 surfaces
+def test_once_output_carries_no_control_characters(capsys):
+    from nvpulse import once
+
+    once.print_once(HostileDriver(1, seed=1), redact=True)
+    out = capsys.readouterr().out
+    assert not any((ord(c) < 0x20 and c != "\n") or 0x7F <= ord(c) <= 0x9F for c in out)
+    assert "\u202e" not in out and "\u200b" not in out
+    assert "PWNED" in out  # shown, but as visible escapes
+
+
+def test_once_redacts_secrets_unless_told_not_to(capsys):
+    from nvpulse import once
+
+    class Secret(MockBackend):
+        def poll(self, indices=None):
+            snaps = super().poll(indices)
+            snaps[0].processes = [ProcessInfo(0, 77, "C", 1, name="app", user="u", cmdline="app --api-key sk-live-123")]
+            return snaps
+
+    once.print_once(Secret(1, seed=1))
+    assert "sk-live-123" not in capsys.readouterr().out
+    once.print_once(Secret(1, seed=1), redact=False)
+    assert "sk-live-123" in capsys.readouterr().out
+
+
+def test_cgroup_names_are_cleaned(tmp_path, monkeypatch):
+    """A user can name a cgroup anything, so the UNIT column is untrusted text too."""
+    from nvpulse import procinfo
+
+    assert procinfo.parse_cgroup("0::/lxc/evil\x1b[2J/x") == "lxc:evil\x1b[2J"  # parser keeps it...
+    p = ProcessInfo(
+        gpu_index=0, pid=10, kind="C", used_memory=1, name="n", user="u", cmdline="c", unit="lxc:evil\x1b[2J" + "x" * 99
+    )
+    enrich([p])
+    assert "\x1b" not in p.unit and len(p.unit) <= procinfo.MAX_UNIT  # ...enrich() makes it safe and short
+
+
+async def test_filter_text_and_info_screen_are_never_markup():
+    app = NvPulse(HostileMock(1, seed=1), interval=3600)
+    async with app.run_test(size=(140, 36)) as pilot:
+        await pilot.pause(0.4)
+        await pilot.press("slash")
+        await pilot.press(
+            "left_square_bracket", "slash", "right_square_bracket"
+        )  # typing "[/]" must not raise MarkupError
+        await pilot.pause(0.2)
+        assert app.is_running and "[/]" in str(app.query_one("#procs").border_title)
+        await pilot.press("escape", "i")
+        await pilot.pause(0.3)
+        from nvpulse.ui.modals import ProcessInfoScreen
+
+        assert isinstance(app.screen, ProcessInfoScreen)
+        static = app.screen.query_one("Static")
+        for y in range(static.size.height):
+            line = "".join(seg.text for seg in static.render_lines(static.region.at_offset((0, y)))[0])
+            assert "\x1b" not in line and "\u202e" not in line
+        assert app.is_running
+
+
+def test_config_file_must_not_be_writable_by_others(tmp_path):
+    from nvpulse import config
+
+    path = tmp_path / "config.toml"
+    path.write_text("redact = false\n")
+    for mode in (0o646, 0o660, 0o664):  # world- or group-writable: someone else could have set that
+        path.chmod(mode)
+        with pytest.raises(config.ConfigUntrusted, match="no one else can write"):
+            config.load(path)
+    path.chmod(0o640)
+    assert config.load(path).redact is False
+
+    link = tmp_path / "link.toml"
+    link.symlink_to(path)
+    assert config.load(link).redact is False  # the check is on the file the link leads to...
+    path.chmod(0o666)
+    with pytest.raises(config.ConfigUntrusted):
+        config.load(link)  # ...so a link can't launder a writable target
+
+    folder = tmp_path / "folder.toml"
+    folder.mkdir()
+    with pytest.raises(config.ConfigError):
+        config.load(folder)
+
+
+def test_config_errors_do_not_echo_raw_key_names(tmp_path):
+    from nvpulse import config
+
+    path = tmp_path / "config.toml"
+    path.write_text('"evil\\u001b[2J" = 1\n')
+    path.chmod(0o600)
+    with pytest.raises(config.ConfigError) as err:
+        config.load(path)
+    assert "\x1b" not in str(err.value) and "evil" in str(err.value)

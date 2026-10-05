@@ -21,6 +21,28 @@ TEXT = "#e6edf3"
 ACCENT = "#76b900"  # NVIDIA green
 RING = "#3d4654"
 HUB = "#d0d7de"
+BORDER = "#30363d"
+
+_DEFAULT_PALETTE = {"TRACK": TRACK, "DIM": DIM, "LABEL": LABEL, "TEXT": TEXT, "RING": RING, "BORDER": BORDER}
+_THEMES = {
+    "default": {},
+    # brighter secondary text and a lighter track, for washed-out displays and projectors
+    "high-contrast": {
+        "TRACK": "#3b4552",
+        "DIM": "#b1bac4",
+        "LABEL": "#d0d7de",
+        "TEXT": "#ffffff",
+        "RING": "#8b949e",
+        "BORDER": "#8b949e",
+    },
+    "mono": {},  # colour is removed by Textual's NO_COLOR handling, not by the palette
+}
+
+
+def set_theme(name: str) -> None:
+    """Switch the neutral colours. Call before the app starts; callers read them at draw time."""
+    globals().update({**_DEFAULT_PALETTE, **_THEMES[name]})
+
 
 Stops = Sequence[tuple[float, str]]
 
@@ -117,6 +139,27 @@ def fmt_rate(kb_per_s: float | None) -> str:
     return f"{kb_per_s / 1_000_000:.2f} GB/s"
 
 
+def fmt_duration(seconds: float) -> str:
+    seconds = max(0, round(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, sec = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m{sec:02d}s" if sec else f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m"
+
+
+def fmt_session_energy(wh: float | None, cost_per_kwh: float | None = None, currency: str = "$") -> str:
+    """Energy drawn while nvpulse has been watching, with its cost when a rate is set."""
+    if wh is None:
+        return "n/a"
+    text = f"{wh / 1000:.2f} kWh" if wh >= 1000 else f"{wh:.1f} Wh"
+    if cost_per_kwh is not None:
+        text += f" ({currency}{wh / 1000 * cost_per_kwh:.2f})"
+    return text
+
+
 def fmt_energy(joules: float | None) -> str:
     if joules is None:
         return "n/a"
@@ -210,6 +253,27 @@ def sparkline(values: Iterable[float | None], width: int, stops: Stops, vmax: fl
         idx = max(1, round(f * 8)) if v > 0 else 0
         text.append(SPARKS[idx] if idx else "▁", Style(color=gradient(stops, f) if idx else TRACK))
     return text
+
+
+def time_axis(width: int, span: float) -> Text:
+    """A ruler for ``history_graph``: how long ago the left edge and the middle were."""
+    text = Text(no_wrap=True, overflow="crop")
+    if width <= 0:
+        return text
+    left, mid, right = f"-{fmt_duration(span)}", f"-{fmt_duration(span / 2)}", "now"
+    if span <= 0 or width < len(left) + len(mid) + len(right) + 6:
+        text.append(" " * max(0, width - len(right)) + right[:width], Style(color=DIM))
+        return text
+    fill = width - len(left) - len(mid) - len(right) - 4
+    a = fill // 2
+    text.append(f"{left} {'┄' * a} {mid} {'┄' * (fill - a)} {right}", Style(color=DIM))
+    return text
+
+
+def stats(values: Iterable[float | None]) -> tuple[float, float, float] | None:
+    """(min, mean, max) of the readings present, or None when there are none."""
+    vals = [v for v in values if v is not None]
+    return (min(vals), sum(vals) / len(vals), max(vals)) if vals else None
 
 
 # ------------------------------------------------------------- braille fan
@@ -382,13 +446,24 @@ class Tween:
         elif self.value.get(key) is None:
             self.value[key] = target
 
-    def step(self, dt: float) -> None:
+    def step(self, dt: float) -> bool:
+        """Advance every value; returns whether any of them is still moving.
+
+        A value within 0.1 % of its target lands on it, so easing ends and the
+        caller can stop repainting instead of chasing an asymptote forever.
+        """
         k = 1.0 - math.exp(-self.rate * max(0.0, dt))
+        moving = False
         for key, tgt in self.target.items():
             cur = self.value.get(key)
-            if tgt is None or cur is None:
+            if tgt is None or cur is None or cur == tgt:
                 continue
-            self.value[key] = cur + (tgt - cur) * k
+            nxt = cur + (tgt - cur) * k
+            if abs(tgt - nxt) <= 1e-3 * max(1.0, abs(tgt)):
+                nxt = tgt
+            self.value[key] = nxt
+            moving = True
+        return moving
 
     def snap(self) -> None:
         self.value.update(self.target)

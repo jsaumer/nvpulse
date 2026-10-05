@@ -6,10 +6,47 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Settings file** at `~/.config/nvpulse/config.toml` (`--config`, `--no-config`,
+  `NVPULSE_CONFIG`): defaults for interval, frame rate, layout, sort, theme and
+  hidden columns, plus alert limits and an energy price. Flags win over the file.
+  See `docs/configuration.md`.
+- **`nvpulse --once`** prints one snapshot as plain lines and exits. It works in
+  pipes and over SSH, and drops colour when it isn't writing to a terminal.
+- **UNIT column**: the Docker, Podman, LXC or Kubernetes container, or the
+  systemd service, that owns each process, read from `/proc/<pid>/cgroup`. It
+  appears only when some process has one. `s` can sort (group) by it.
+- **`/` filters the process table** by text, or by `user:`, `gpu:`, `unit:`,
+  `pid:` and `type:`. `Esc` clears the filter.
+- **`i` shows everything about the selected process**, with the command line in full.
+- **Alerts**: with a temperature or VRAM limit in the settings file, a card that
+  reaches it gets a badge, and nvpulse notifies and rings the bell once.
+- **Energy this session**, in watt-hours, on the card and in the detail view,
+  with its cost when a price per kWh is configured.
+- **Encoder sessions**: the number of active NVENC sessions and their frame rate.
+- Detail view: a time axis under the graphs, and each graph's range and average.
+- **Themes**: `--theme high-contrast` and `--theme mono`. `NO_COLOR` selects mono.
+- Every on/off flag now has both forms (`--anim` / `--no-anim`, `--read-only` /
+  `--no-read-only`, `--hide-graphics` / `--no-hide-graphics`, `--redact` /
+  `--no-redact`), so a flag can undo what the settings file turns on.
+- Under WSL, passthrough also looks in `/usr/lib/wsl/lib` for the real `nvidia-smi`.
+- CI runs the tests on the oldest supported dependency versions, and on Python 3.14.
+
 ### Changed
+- The command column is cut to fit the terminal, so the process table no longer
+  scrolls sideways. On a narrow terminal the UNIT column gives way first.
+- A card that isn't changing (stopped fans, settled readings) is no longer
+  repainted on every animation frame.
 - The PyPI release workflow now runs only when started by hand from a version
   tag. Publishing a GitHub release no longer triggers it.
 - The README shows how to install straight from GitHub at a release tag.
+
+### Security
+- The settings file is refused unless it is a regular file owned by you or root
+  that nobody else can write (group included), since it can turn off redaction
+  and read-only mode.
+- Container and service names come from cgroup paths, which any user can name,
+  so they are cleaned like every other piece of process text.
 
 ## [0.2.0] - 2026-10-05
 

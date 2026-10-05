@@ -72,7 +72,8 @@ terminal), as a share of one core:
 - **`SM` clock jumps around at idle.** The driver drops the core clock between
   bursts of work, so two readings a moment apart can differ a lot.
 - The process table lists every graphics client (`G`), most of them using a few
-  MiB. Press `g` to hide them, or start with `--hide-graphics`.
+  MiB. Press `g` to hide them, or start with `--hide-graphics`. `/` narrows the
+  list further, and `i` shows a row's full command line.
 - **PCIe shows Gen 1 or 2 on a Gen 4 card.** The driver drops the link speed at
   idle to save power and raises it under load. `nvidia-smi` shows the same.
 
@@ -100,6 +101,67 @@ Those readings are fetched only while the view is open and arrive with the next
 poll. If they stay `…`, polling is failing: look for a "poll failed" notice.
 "n/a" means the card or driver doesn't report that value (ECC counters on
 consumer cards, for example).
+
+### The UNIT column is missing, empty, or shows an ID instead of a name
+
+The column appears only when at least one GPU process belongs to a container
+or a system service, and it steps aside on a narrow terminal. Containers show
+as `docker:3f2a9c1b2d4e` (the short ID `docker ps` prints), because looking up
+the friendly name would need the runtime's root-equivalent socket. Match it with:
+
+```bash
+docker ps --no-trunc | grep 3f2a9c1b2d4e
+```
+
+Ordinary desktop apps have no unit: a desktop session runs every app as its own
+user unit, and labelling them all would just be noise. If nvpulse itself runs
+inside a container, it can't see the host's cgroups and the column stays empty.
+
+### `nvpulse: ... config.toml: ...` at startup
+
+The settings file has a problem, and the message says which: an unknown key
+(often a typo), a value of the wrong type or out of range, or a file that
+someone else can write (`chmod go-w` it; group-writable counts). `nvpulse
+--no-config` starts without it. All settings are listed in
+[configuration.md](configuration.md).
+
+`refusing …; continuing without it` is a warning, not an error: the file at the
+default location belongs to someone else (typically yours, seen by `sudo
+nvpulse`), so it was skipped.
+
+### Alerts don't fire, or fire once and go quiet
+
+Alerts are off until you set `temp` or `vram` under `[alerts]` in the settings
+file. A limit is announced once when a GPU reaches it, and again only after it
+has dropped below and come back; the badge on the card stays for as long as the
+GPU is over the limit.
+
+### "session" energy looks too low
+
+It counts from when nvpulse started, adds up the power readings poll by poll,
+and skips long gaps (paused, or the machine was asleep). The detail view also
+shows the driver's own counter, "since driver load", when the card has one.
+
+### Passthrough under WSL says the real nvidia-smi was not found
+
+Windows drives mounted in WSL show every file as writable by everyone, so
+`nvidia-smi.exe` under `/mnt/c` fails the check that keeps nvpulse from
+executing a binary someone else could have replaced. nvpulse looks for WSL's
+own Linux copy in `/usr/lib/wsl/lib` instead. If it is somewhere else, point
+`NVPULSE_REAL_SMI` at it. (This path has not been tested on a real WSL install yet.)
+
+### No colour, or colour where you don't want it
+
+`--once` uses colour only when writing to a terminal. The dashboard follows
+`--theme`; `--theme mono` or `NO_COLOR=1` removes colour, and
+`--theme high-contrast` brightens the dim parts. Naming a colour theme
+overrides `NO_COLOR`.
+
+### `--once` prints `?` instead of bars over SSH
+
+The terminal's locale can't encode the block characters (`LANG=C`, for
+example). nvpulse replaces what it can't print rather than failing. Use a UTF-8
+locale to get the bars: `LANG=C.UTF-8 nvpulse --once`.
 
 ### Reporting a hardware quirk
 

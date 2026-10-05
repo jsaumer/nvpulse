@@ -54,8 +54,10 @@ python scripts/make_screenshots.py --gif    # + demo.gif (needs playwright + pil
 ```
 src/nvpulse/
   cli.py              argument parsing, nvidia-smi passthrough, backend selection
+  config.py           the optional settings file (read-only, validated)
   dump.py             --dump: one anonymised JSON snapshot on stdout
-  procinfo.py         PID -> user / name / cmdline enrichment (psutil)
+  once.py             --once: one plain snapshot on stdout
+  procinfo.py         PID -> user / name / cmdline / container or service (psutil, /proc)
   sanitize.py         untrusted-text cleaning + secret redaction
   killer.py           safe signalling (pidfd pinning, PID-reuse checks)
   backend/
@@ -103,6 +105,17 @@ See [docs/architecture.md](docs/architecture.md) for how data and animation flow
 If the NVML call is slow (more than a millisecond or two) or only interesting
 when someone goes looking, put it in `GpuDetail` / `Backend.detail()` instead,
 and render it in `ui/detail.py`. It is then only polled while the detail view is open.
+
+## Adding a setting
+
+1. Add the field to `Config` in `config.py` and validate it in `parse()` (type,
+   range, allowed values). Unknown keys are errors, so nothing is accepted by accident.
+2. In `cli.main()`, resolve it with `pick(flag, cfg.value, default)` and pass it on.
+3. Document it in `docs/configuration.md`, and add cases to `tests/test_config.py`.
+
+A setting must never run a command, name a binary to execute, or make nvpulse
+write or connect anywhere. If it weakens a safety default, say so in
+`docs/security.md`.
 
 ## Releasing
 

@@ -8,19 +8,21 @@ import signal
 import threading
 import time
 
+from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, VerticalScroll
-from textual.widgets import Footer, Static
+from textual.widgets import Footer, Input, Static
 
-from ..backend.models import Backend, GpuDetail, GpuSnapshot, SystemInfo
+from ..backend.models import Alerts, Backend, GpuDetail, GpuSnapshot, SystemInfo
 from ..killer import KillRefused, KillTarget, check_pid, prepare, send
 from ..procinfo import enrich
 from ..sanitize import clean
+from . import render as R
 from .detail import DetailView, GpuDetailScreen
-from .modals import MODAL_CSS, ConfirmKill, HelpScreen
-from .widgets import SORT_LABEL, GpuCard, HeaderBar, ProcessTable
+from .modals import MODAL_CSS, ConfirmKill, HelpScreen, ProcessInfoScreen
+from .widgets import MAX_FILTER, SORT_LABEL, SORTS, GpuCard, HeaderBar, ProcessTable
 
 CARD_MIN_W = {True: 62, False: 96}  # compact, expanded
 CARD_H = {True: 7, False: 11}
@@ -44,7 +46,11 @@ class NvPulse(App):
         border-subtitle-color: #6e7681; background: #0d1117;
     }
     #empty { content-align: center middle; height: 1fr; color: #8b949e; }
+    #filter { display: none; height: 1; border: none; padding: 0 1; background: #161b22; color: #e6edf3; }
+    #filter.-on { display: block; }
     Footer { background: #161b22; }
+    .-hc #procs { border: round #8b949e; border-subtitle-color: #b1bac4; }
+    .-hc #empty { color: #d0d7de; }
     """
         + MODAL_CSS
     )
@@ -57,6 +63,9 @@ class NvPulse(App):
         Binding("a", "toggle_anim", "Anim", show=False),
         Binding("s", "sort", "Sort"),
         Binding("g", "toggle_graphics", "Graphics"),
+        Binding("slash", "filter", "Filter"),
+        Binding("escape", "clear_filter", "Clear filter", show=False),
+        Binding("i", "info", "Info", show=False),
         Binding("enter", "detail", "Detail"),
         Binding("k", "kill(False)", "Term"),
         Binding("K", "kill(True)", "Kill", show=False),
@@ -75,11 +84,26 @@ class NvPulse(App):
         redact: bool = True,
         read_only: bool = False,
         hide_graphics: bool = False,
+        sort: str = "vram",
+        hidden_columns: tuple[str, ...] | list[str] = (),
+        alerts: Alerts | None = None,
+        cost_per_kwh: float | None = None,
+        currency: str = "$",
+        theme: str = "default",
     ) -> None:
         super().__init__()
         self.redact = redact
         self.read_only = read_only
         self.hide_graphics = hide_graphics
+        self.sort = sort if sort in SORTS else "vram"
+        self.hidden_columns = frozenset(hidden_columns)
+        self.alerts = alerts
+        self.cost_per_kwh, self.currency = cost_per_kwh, currency
+        if theme == "high-contrast":
+            self.add_class("-hc")
+        self.energy_wh: dict[int, float] = {}  # per GPU, integrated from the power readings we saw
+        self._last_energy = 0.0
+        self._alerting: dict[int, set[str]] = {}  # limits each GPU is currently over
         self.as_root = hasattr(os, "geteuid") and os.geteuid() == 0
         self.backend = backend
         self.interval = interval
@@ -112,12 +136,16 @@ class NvPulse(App):
             yield Container(id="gpus")
         with Vertical(id="procs"):
             yield ProcessTable(id="proc-table")
+            yield Input(placeholder="filter: text  user:name  gpu:0  unit:docker", id="filter", max_length=MAX_FILTER)
         yield Footer()
 
     def on_mount(self) -> None:
         self.table = self.query_one(ProcessTable)
         self.table.hide_graphics = self.hide_graphics
+        self.table.sort_key = self.sort
+        self.table.hidden_columns = self.hidden_columns
         self._procs_box = self.query_one("#procs")
+        self._filter_box = self.query_one("#filter", Input)
         self._update_proc_title()
         self.anim_timer = self.set_interval(1.0 / (self.fps if self.animate else 2.0), self.animate_tick)
         self.poll_timer = self.set_interval(self.interval, self.request_poll)
@@ -209,6 +237,8 @@ class NvPulse(App):
             return
         grid = found.first()
         self._snaps = snaps
+        self._count_energy(snaps)
+        self._check_alerts(snaps)
         if info is not None:
             self._have_info = True
             self.header.info = info
@@ -226,8 +256,10 @@ class NvPulse(App):
             card = self.cards.get(s.index)
             if card is None:
                 card = GpuCard(s.index, animate=self.animate, id=f"gpu-{s.index}")
+                card.alerts = self.alerts
                 self.cards[s.index] = card
                 new_cards.append(card)
+            card.session = self._session(s.index)
             card.update_snapshot(s)
         if new_cards:
             grid.mount_all(new_cards)
@@ -240,6 +272,33 @@ class NvPulse(App):
         self.table.update_processes(snaps)
         self._update_proc_title()
         self.feed_detail()
+
+    def _count_energy(self, snaps: list[GpuSnapshot]) -> None:
+        """Add up watt-hours from the power readings, one poll interval at a time."""
+        now = time.monotonic()
+        # a long gap means we were paused or suspended: don't bill it at the current draw
+        dt = min(now - self._last_energy, 3 * self.interval + 1.0) if self._last_energy else 0.0
+        self._last_energy = now
+        for s in snaps:
+            if s.power is not None:
+                self.energy_wh[s.index] = self.energy_wh.get(s.index, 0.0) + s.power * dt / 3600.0
+
+    def _session(self, index: int) -> str:
+        wh = self.energy_wh.get(index)
+        return R.fmt_session_energy(wh, self.cost_per_kwh, self.currency) if wh is not None else ""
+
+    def _check_alerts(self, snaps: list[GpuSnapshot]) -> None:
+        """Announce a limit once when a GPU crosses it, not on every poll it stays over."""
+        if self.alerts is None:
+            return
+        for s in snaps:
+            active = set(self.alerts.active(s))
+            for label in sorted(active - self._alerting.get(s.index, set())):
+                reading = f"{s.temp:.0f}°C" if label == "HOT" else f"{s.mem_pct:.0f}% VRAM"
+                self._say(f"GPU {s.index} reached its {label} limit ({reading})", "warning")
+                if self.alerts.bell:
+                    self.bell()
+            self._alerting[s.index] = active
 
     # ------------------------------------------------------------- animation
     def animate_tick(self) -> None:
@@ -254,10 +313,16 @@ class NvPulse(App):
     # --------------------------------------------------------------- actions
     def _update_proc_title(self) -> None:
         procs = self._procs_box
-        n = self.table.row_count
-        hidden = f" · {self.table.hidden} graphics hidden" if self.table.hide_graphics else ""
-        procs.border_title = f" Processes · {n}{hidden} "
-        procs.border_subtitle = f" sort: {SORT_LABEL[self.table.sort_key]} ▼ · g graphics · k term · K kill "
+        title = f" Processes · {self.table.row_count}"
+        if self.table.hide_graphics:
+            title += f" · {self.table.hidden} graphics hidden"
+        if self.table.filter_text.strip():
+            title += f" · filter: {clean(self.table.filter_text.strip(), 40)}"
+        # Text, not str: the filter is typed by the user and must not be parsed as markup
+        procs.border_title = Text(title + " ")
+        procs.border_subtitle = Text(
+            f" sort: {SORT_LABEL[self.table.sort_key]} ▼ · / filter · i info · k term · K kill "
+        )
 
     def action_pause(self) -> None:
         self.paused = not self.paused
@@ -304,6 +369,35 @@ class NvPulse(App):
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
+
+    # ---------------------------------------------------------------- filter
+    def action_filter(self) -> None:
+        self._filter_box.add_class("-on")
+        self._filter_box.focus()
+
+    def action_clear_filter(self) -> None:
+        self._filter_box.value = ""  # triggers on_input_changed
+        self._filter_box.remove_class("-on")
+        self.table.focus()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        self.table.filter_text = event.value
+        self.table.update_processes(self._snaps)
+        self._update_proc_title()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if not event.value.strip():
+            self._filter_box.remove_class("-on")
+        self.table.focus()  # keep the filter, go back to the rows
+
+    def action_info(self) -> None:
+        sel = self.table.selected_process()
+        proc = sel and next((p for s in self._snaps for p in s.processes if (p.gpu_index, p.pid) == sel), None)
+        if not proc:
+            self._say("no process selected", "warning")
+            return
+        started = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(proc.started)) if proc.started else ""
+        self.push_screen(ProcessInfoScreen(proc, started))
 
     # ----------------------------------------------------------- detail view
     def action_detail(self, index: int | None = None) -> None:
@@ -358,7 +452,7 @@ class NvPulse(App):
             hint = f" GPU {shown.index(snap.index) + 1} of {len(shown)} · ←/→ switch ·{hint}"
         view = screen.query(DetailView)
         if view:  # absent while the screen is still mounting or already closing
-            view.first().show(snap, detail, self.cards[snap.index].hist, hint)
+            view.first().show(snap, detail, self.cards[snap.index].hist, hint, self._session(snap.index), self.alerts)
 
     def _say(self, message: str, severity: str = "information", timeout: float | None = None) -> None:
         """notify() with markup off: messages can contain process names or driver errors."""

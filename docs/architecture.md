@@ -38,6 +38,7 @@ everything out.
 | Condition | Result |
 |---|---|
 | `--dump` | print one JSON snapshot and exit (TTY or not); an error if mixed with nvidia-smi flags |
+| `--once` | print one plain snapshot and exit (TTY or not); same restriction |
 | Any argument nvpulse doesn't define (`-q`, `-L`, `--query-gpu=…`, `-l 5` …) | passthrough with the original argv |
 | `--classic` | passthrough (flag stripped) |
 | stdout is not a TTY and no `--mock` | passthrough |
@@ -52,6 +53,18 @@ startup through `Backend.identify()`.
 
 `--dump` (`dump.py`) polls once, adds `Backend.detail()` for each GPU and prints
 JSON. What it leaves out, and why, is in [security.md](security.md).
+
+`--once` (`once.py`) polls once, runs `enrich()`, and prints the result as plain
+`Text` lines through a Rich console: coloured on a terminal, bare in a pipe. Its
+gauges use `█` and `░` rather than background colour, so they survive without it.
+
+### Settings (`config.py`)
+
+`main()` resolves every option as flag, then settings file, then built-in
+default (`pick()`), so argparse defaults are `None` for anything the file can
+set. The file is validated key by key with the same limits as the flags; an
+unknown key is an error rather than something to skip. Passthrough never reads
+the file. See [configuration.md](configuration.md).
 
 ## Backends (`backend/`)
 
@@ -81,7 +94,10 @@ time).
 
 `procinfo.enrich()` fills in user, name, command line and start time through
 `psutil`, with results cached per PID and keyed on create-time so recycled PIDs
-aren't mislabelled. Every string is passed through `sanitize.clean()` (and
+aren't mislabelled. It also reads `/proc/<pid>/cgroup` and `parse_cgroup()` turns
+that into a unit: `docker:<12 hex>`, `podman:…`, `containerd:…`, `crio:…`, `k8s:…`,
+`lxc:<name>`, or the name of a *system* service. User-session units are skipped,
+because a desktop runs every app as one. Every string is passed through `sanitize.clean()` (and
 `redact()` unless `--no-redact`) before it leaves this function. Kills go through
 `killer.py`. Both are described in [security.md](security.md).
 
@@ -103,7 +119,7 @@ generation is ignored, because drivers drop it at idle to save power.
 | Clock | Rate | Work |
 |---|---|---|
 | **Poll** | `--interval` (0.25–10 s, `+`/`-` to change) | Thread worker calls `backend.poll()` (plus `system_info()` the first time and `detail()` while the detail view is open) and `enrich()`, then `call_from_thread(apply_snapshots)`. A `_polling` flag prevents overlapping polls if NVML is slow. |
-| **Animation** | `--fps` (default 20; 2 with `--no-anim`) | `card.tick(dt)` advances `Tween` easing, fan phase and pulse time, then refreshes. No I/O. |
+| **Animation** | `--fps` (default 20; 2 with `--no-anim`) | `card.tick(dt)` advances `Tween` easing, fan phase and pulse time, and repaints only if something moved. No I/O. |
 
 Keeping these separate means a slow or hung NVML call can't stall the animation,
 and animation smoothness doesn't depend on how often you poll. Nothing touches
@@ -131,7 +147,18 @@ value += (target - value) * (1 - exp(-rate * dt))
 ```
 
 This is frame-rate-independent exponential easing. A `None` target snaps to
-`None` right away, so "n/a" never animates.
+`None` right away, so "n/a" never animates. A value within 0.1 % of its target
+lands on it, and `step()` reports whether anything is still moving. `GpuCard.tick()`
+uses that: a card whose readings have settled, whose fans are stopped and which
+has no shimmer or hot-glow running skips the repaint. `update_snapshot()` always
+repaints, so nothing goes stale.
+
+### Per-poll bookkeeping
+
+`apply_snapshots()` also integrates energy (`power × time since the last poll`,
+with long gaps capped so a pause isn't billed) and checks the configured
+`Alerts`. An alert is announced when a GPU newly reaches a limit; the set of
+limits each GPU is over is remembered so it isn't repeated every poll.
 
 ## Rendering (`ui/render.py`)
 
@@ -171,6 +198,21 @@ nothing.
   and scrolls; the process table takes the rest.
 - Card border colour blends from grey toward the utilisation gradient, so the busiest
   GPU stands out in a grid.
+
+## Process table (`ui/widgets.py`)
+
+`ProcessTable._plan()` decides the layout on every update: which columns to
+show (hidden ones dropped, UNIT only when some process has one) and how wide the
+command column can be so the table never scrolls sideways. If that leaves the
+command less than 16 cells, UNIT goes first. The plan is compared with the one
+in use: a different plan rebuilds the columns, the same plan with the same rows
+in the same order updates only the cells that changed.
+
+Rows pass through `hide_graphics` and then the `/` filter (`parse_filter()` /
+`matches()`): space-separated terms that must all match, either plain text
+against name and command line or `field:value` for user, gpu, unit, pid and type.
+The filter box is an `Input` that is only displayed while in use. While it has
+focus, typed letters are text, so `k` and `q` can't fire.
 
 ## Detail view (`ui/detail.py`)
 

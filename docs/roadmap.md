@@ -17,38 +17,31 @@ Rough priorities, not promises. Open an issue if you'd like to push something up
 - Polish: selected-row colours, help screen, sparkline lead-in, mock VRAM, smaller GIF
 - Release workflow for PyPI (trusted publishing)
 
-## v0.3: everyday use on real boxes
-- [ ] CI job on the oldest supported versions (Textual 4.0, nvidia-ml-py 12.535):
-      a bug that only showed there got past CI in v0.2. Add Python 3.14 to the
-      matrix; drop 3.10 once it is out of support
+## v0.3: everyday use on real boxes ✅
+- Settings file (`~/.config/nvpulse/config.toml`), themes and `NO_COLOR`
+- `nvpulse --once`
+- UNIT column: container or systemd service per process; sort by it
+- `/` filter, `i` process details, command column fitted to the terminal
+- Alerts on temperature and VRAM limits; energy and cost this session
+- Encoder sessions; time axis and ranges in the detail view
+- Idle cards skip repaints
+- CI on the oldest supported versions and on Python 3.14
+- WSL: passthrough looks in `/usr/lib/wsl/lib` (untested on real WSL)
+
+## v0.4: more hardware, events and history
 - [ ] Validate on more hardware we can reach. Covered so far: one consumer
       desktop card (RTX 4070 SUPER, zero-RPM idle fans). Still open: multi-GPU,
-      workstation, datacenter, and two with known risks:
-      - WSL: passthrough will reject `nvidia-smi.exe` on a Windows mount (those
-        files show as world-writable). Decide on a narrow, documented exception
+      workstation, datacenter, a real container host (the UNIT column is only
+      tested against documented cgroup layouts), and two with known risks:
+      - WSL: confirm passthrough finds `/usr/lib/wsl/lib/nvidia-smi`, and that
+        the dashboard copes with what the WSL driver doesn't report
       - laptops with hybrid graphics: polling may keep the GPU from sleeping
-- [ ] Container column: which Docker / Podman container or systemd unit owns a
-      process, read from `/proc/<pid>/cgroup` (no access to the Docker socket)
-- [ ] `nvpulse --once`: print one coloured snapshot and exit, for SSH one-liners
-      and login banners
-- [ ] Shorter command lines: fit the column (no horizontal scrollbar), full line
-      on demand
-- [ ] `/` to filter processes by name; filters by user and by GPU
-- [ ] Detail view: a time scale and min / avg / max on the history graphs
-- [ ] Encoder sessions: count and frame rate of active NVENC sessions
-- [ ] Config file (`~/.config/nvpulse/config.toml`): default interval, fps, sort,
-      colour thresholds, hidden columns
-- [ ] Threshold alerts: highlight or ring the bell when temperature or VRAM
-      crosses a configured limit
-- [ ] Energy used since start, with an optional cost per kWh from the config
-- [ ] Theme presets (default, high-contrast, monochrome / `NO_COLOR`)
-- [ ] Process tree view / group by container (cgroup)
-- [ ] Skip card repaints when nothing visible changed (idle cards with stopped fans)
-
-## v0.4: events and history
+- [ ] Process tree view (parent / child rows)
 - [ ] XID error and throttle event log panel
 - [ ] Optional CSV/JSONL recording (`--record file`) and replay (`--replay file`)
 - [ ] MIG instance awareness (needs datacenter hardware or contributed dumps)
+- [ ] Alerts on more readings (power, utilisation, fan failure)
+- [ ] Drop Python 3.10 once it is out of support (lets `tomli` go)
 
 ## Later / ideas
 - [ ] Remote mode: poll several hosts over SSH and show them in one grid

@@ -37,6 +37,15 @@ PROC_POOL = [
     ("vllm", "python -m vllm.entrypoints.openai.api_server", "C", 18.0),
 ]
 USERS = ["saumz", "root", "jellyfin", "ollama"]
+# what procinfo would read from /proc/<pid>/cgroup on a real host
+UNITS = {
+    "ollama": "ollama",
+    "Tdarr_Node": "docker:9c41d7e02b6a",
+    "comfyui": "docker:51f0a3c8e7d2",
+    "vllm": "podman:e3b0c44298fc",
+    "jupyter": "k8s:7d1a54127b22",
+    "Xorg": "gdm",
+}
 
 
 @dataclass
@@ -201,9 +210,11 @@ class MockBackend(Backend):
                     name=p.name,
                     user=p.user,
                     cmdline=p.cmd,
+                    unit=UNITS.get(p.name, ""),
                 )
                 for p in g.procs
             ]
+            enc = float(self._rng.choice([0, 0, 0, 12, 34]))
             fans = [max(0.0, round(g.fan + self._rng.uniform(-1, 1), 0)) if g.fan >= 1 else 0.0 for _ in range(nfans)]
             reasons = 0x001 if util < 2 else (0x004 if util > 92 else 0)
             if g.temp >= slowdown - 2:
@@ -230,8 +241,10 @@ class MockBackend(Backend):
                     clock_sm_max=2520,
                     clock_mem_max=10501,
                     pstate=2 if util > 10 else 8,
-                    enc_util=float(self._rng.choice([0, 0, 0, 12, 34])),
+                    enc_util=enc,
                     dec_util=float(self._rng.choice([0, 0, 8, 21])),
+                    enc_sessions=1 if enc else 0,
+                    enc_fps=60 if enc else 0,
                     pcie_gen=4 if util > 5 else 1,
                     pcie_width=8 if g.index % len(PROFILES) == 5 else 16,  # one card in a narrow slot
                     pcie_gen_max=4,

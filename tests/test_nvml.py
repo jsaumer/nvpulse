@@ -379,3 +379,11 @@ def test_fan_targets_stay_aligned_with_fan_numbers(fake, monkeypatch):
 
     monkeypatch.setattr(fake, "nvmlDeviceGetTargetFanSpeed", target, raising=False)
     assert NvmlBackend().detail(0).fan_target == [None, 45.0]
+
+
+def test_encoder_sessions(fake, monkeypatch):
+    (snap,) = NvmlBackend().poll()
+    assert snap.enc_sessions is None and snap.enc_fps is None  # this fake driver doesn't answer
+    monkeypatch.setattr(fake, "nvmlDeviceGetEncoderStats", lambda h: (2, 60, 4100), raising=False)
+    (snap,) = NvmlBackend().poll()
+    assert (snap.enc_sessions, snap.enc_fps) == (2, 60)

@@ -193,6 +193,7 @@ class NvmlBackend(Backend):
             dec = _safe(N.nvmlDeviceGetDecoderUtilization, h)
             fans = self._fans(h, st["num_fans"])
             persistence = _safe(N.nvmlDeviceGetPersistenceMode, h)
+            enc_stats = _call("nvmlDeviceGetEncoderStats", h)  # (sessions, average fps, average latency)
 
             out.append(
                 GpuSnapshot(
@@ -218,6 +219,8 @@ class NvmlBackend(Backend):
                     pstate=_safe(N.nvmlDeviceGetPerformanceState, h),
                     enc_util=float(enc[0]) if enc else None,
                     dec_util=float(dec[0]) if dec else None,
+                    enc_sessions=int(enc_stats[0]) if enc_stats else None,
+                    enc_fps=int(enc_stats[1]) if enc_stats else None,
                     pcie_gen=_safe(N.nvmlDeviceGetCurrPcieLinkGeneration, h),
                     pcie_width=_safe(N.nvmlDeviceGetCurrPcieLinkWidth, h),
                     pcie_gen_max=st["pcie_gen_max"],

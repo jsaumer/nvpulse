@@ -8,16 +8,19 @@ Repo: https://github.com/jsaumer/nvpulse (MIT). Commands: `nvpulse`, alias `nvid
 
 ```bash
 pip install -e '.[dev]'          # dev install (venv recommended)
-pytest -q                        # 128 tests; no GPU needed
+pytest -q                        # 213 tests; no GPU needed
 ruff check . && ruff format --check .
 nvpulse --mock 3                 # run with simulated GPUs
 nvpulse                          # real hardware (needs NVIDIA driver / NVML)
 nvpulse --dump                   # one anonymised JSON snapshot (good source for test fixtures)
+nvpulse --once                   # one plain snapshot, no TUI (quick check without a terminal)
 python scripts/make_screenshots.py [--gif]   # regenerate docs/images (gif needs playwright + pillow; uses system Chrome if present)
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, tests on 3.10–3.13, `pip-audit --strict`
-and a build. Keep it green. `release.yml` publishes to PyPI (trusted publishing)
+CI (`.github/workflows/ci.yml`) runs lint, tests on 3.10–3.14, the same tests on
+the oldest allowed dependency versions (`test-minimum`), `pip-audit --strict`
+and a build. Keep it green. When a dependency floor in `pyproject.toml` changes,
+change the pins in `test-minimum` to match. `release.yml` publishes to PyPI (trusted publishing)
 but only when started by hand from a version tag; tags and GitHub releases never
 trigger it. nvpulse is not on PyPI: people install from GitHub at a tag, and the
 README's install line carries the current tag. Release steps are in `CONTRIBUTING.md`.
@@ -30,9 +33,13 @@ public" in `docs/roadmap.md`.
 
 ```
 src/nvpulse/
-  cli.py        argparse (allow_abbrev=False), passthrough to real nvidia-smi, value clamping, -i selectors
+  cli.py        argparse (allow_abbrev=False), passthrough to real nvidia-smi, value clamping, -i selectors,
+                flag > settings file > default resolution
+  config.py     optional ~/.config/nvpulse/config.toml: read-only, validated, trust-checked
   dump.py       --dump: anonymised JSON snapshot on stdout
-  procinfo.py   pid -> user/name/cmdline/start time via psutil; sanitises + redacts
+  once.py       --once: one plain snapshot on stdout
+  procinfo.py   pid -> user/name/cmdline/start time via psutil, container/service from cgroup;
+                sanitises + redacts
   sanitize.py   clean() for untrusted text, redact() for secrets
   killer.py     safe signalling: pidfd pinning, start-time PID-reuse check, PID guards
   backend/      models.py (dataclasses + Backend iface), nvml.py (real), mock.py (simulated)
@@ -40,7 +47,7 @@ src/nvpulse/
                 modals.py, app.py (Textual App)
 tests/          test_render.py, test_cli_and_app.py, test_security.py, test_nvml.py (fake pynvml)
 .github/        workflows/ci.yml, workflows/release.yml (PyPI), dependabot.yml
-docs/           architecture.md, security.md, roadmap.md, troubleshooting.md, images/
+docs/           architecture.md, configuration.md, security.md, roadmap.md, troubleshooting.md, images/
 ```
 
 Read `docs/architecture.md` before structural changes and `docs/security.md`
@@ -64,6 +71,12 @@ before touching anything that displays process data, signals processes or execs 
   `rich.text.Text`, and is unit-tested. Widgets only lay out.
 - **Layout.** 1 GPU gives an expanded card; 2+ GPUs, or a terminal under 30 rows,
   gives a compact grid. `c` toggles.
+- **The process table plans its columns every update** (`ProcessTable._plan()`):
+  hidden columns, UNIT only when something has one, command width fitted so the
+  table never scrolls sideways. A changed plan rebuilds; otherwise cells update in place.
+- **Cards repaint only when something moves.** `Tween.step()` settles and reports
+  motion; `GpuCard.tick()` skips the refresh for a settled card with stopped fans.
+  Anything new that animates by time alone must be added to `GpuCard._pulsing()`.
 
 ## Rules (non-negotiable)
 
@@ -80,7 +93,8 @@ before touching anything that displays process data, signals processes or execs 
 4. **Keep NVML off the UI thread.**
 5. **No network access, telemetry or persistent writes** without an explicit decision
    recorded in `docs/security.md`. `--dump` writes to stdout only and must stay
-   free of hostnames, UUIDs, PIDs, user names and command lines.
+   free of hostnames, UUIDs, PIDs, user names and command lines. The settings
+   file is read, never written, and no setting may run or name a program.
 6. **GitHub Actions stay pinned to full commit SHAs** with a `# vX.Y.Z` comment.
    Workflow `permissions` stay at `contents: read` unless a job truly needs more.
 7. Every user-visible change gets a line under `## [Unreleased]` in `CHANGELOG.md`.
@@ -112,6 +126,17 @@ before touching anything that displays process data, signals processes or execs 
   12.535 floor lacks `nvmlDeviceGetFanSpeedRPM`). Use `_call("name", …)` and
   `_const("NAME")` in `nvml.py` for anything newer than the floor. The fake in
   `tests/test_nvml.py` models this with its `missing` set.
+- **Palette colours are read at draw time.** `render.set_theme()` rebinds
+  `R.TEXT`, `R.DIM` and friends, so write `Style(color=R.DIM)` inside the function
+  that draws, never as a module-level constant, and never `from .render import DIM`.
+- **Rich turns a closed pipe into exit status 1** (`Console.on_broken_pipe`).
+  `once.print_once()` captures and writes in one go so `nvpulse --once | head`
+  ends cleanly; keep it that way.
+- **An `Input` with focus swallows letter keys,** which is what keeps `k` and `q`
+  from firing while the filter is being typed. App bindings for non-printing
+  keys (`escape`) still reach the app.
+- **Desktop sessions run every app as a systemd user unit.** `parse_cgroup()`
+  labels containers and system services only, or the UNIT column fills with noise.
 - **Real hardware lies about throttling.** An idle desktop card reports "software
   power cap" continuously and drops its PCIe link to Gen 1. Neither is a fault,
   so neither raises a badge or warning (`models.CLOCK_REASONS`, `pcie_downgrade`).

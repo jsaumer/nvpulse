@@ -14,7 +14,7 @@ from textual.widget import Widget
 from textual.widgets import DataTable
 
 from .. import __version__
-from ..backend.models import GpuSnapshot, ProcessInfo, SystemInfo
+from ..backend.models import Alerts, GpuSnapshot, ProcessInfo, SystemInfo
 from ..sanitize import clean
 from . import render as R
 
@@ -24,8 +24,8 @@ WARN = "#d29922"
 ALERT = "#f85149"
 
 
-def card_title(s: GpuSnapshot) -> Text:
-    """Border title: the GPU name, then a badge per active throttle.
+def card_title(s: GpuSnapshot, alerts: Alerts | None = None) -> Text:
+    """Border title: the GPU name, a badge per active throttle, then per reached alert.
 
     Returned as ``Text`` so Textual never parses the driver-supplied name as markup.
     (Its ``escape()`` only covers complete ``[tags]``; a name cut off mid-tag would
@@ -34,6 +34,9 @@ def card_title(s: GpuSnapshot) -> Text:
     title = Text(f" GPU {s.index} · {clean(s.name.replace('NVIDIA ', ''), 48)} ")
     for badge in s.throttle_badges:
         title.append(f" {badge} ", Style(color="#0d1117", bgcolor=ALERT, bold=True))
+        title.append(" ")
+    for badge in alerts.active(s) if alerts else ():
+        title.append(f" {badge} ", Style(color="#0d1117", bgcolor=WARN, bold=True))
         title.append(" ")
     return title
 
@@ -162,10 +165,13 @@ class GpuCard(Widget):
         self.animate_enabled = animate
         self.snap: GpuSnapshot | None = None
         self.tw = R.Tween(rate=6.0)
-        self.hist: dict[str, deque] = {k: deque(maxlen=HISTORY) for k in ("gpu", "mem", "pwr", "tmp")}
+        # "t" holds the monotonic time of each sample, for the detail view's time axis
+        self.hist: dict[str, deque] = {k: deque(maxlen=HISTORY) for k in ("gpu", "mem", "pwr", "tmp", "t")}
         self.phase = 0.0
         self.t = 0.0
         self.compact = False
+        self.alerts: Alerts | None = None
+        self.session = ""  # energy drawn since nvpulse started, already formatted
 
     # -------------------------------------------------------------- data in
     def update_snapshot(self, s: GpuSnapshot) -> None:
@@ -182,14 +188,15 @@ class GpuCard(Widget):
         self.hist["mem"].append(s.mem_pct)
         self.hist["pwr"].append(s.power_pct)
         self.hist["tmp"].append(s.temp)
+        self.hist["t"].append(time.monotonic())
         if not self.animate_enabled:
             self.tw.snap()
 
         # str border titles are parsed as markup; these are Text, which is not
-        self.border_title = card_title(s)
+        self.border_title = card_title(s, self.alerts)
         self.border_subtitle = card_subtitle(s)
         load = (s.util_gpu or 0) / 100
-        self.styles.border = ("round", R.mix("#30363d", R.gradient(R.UTIL_GRAD, load), 0.25 + 0.6 * load))
+        self.styles.border = ("round", R.mix(R.BORDER, R.gradient(R.UTIL_GRAD, load), 0.25 + 0.6 * load))
         self.refresh()
 
     def on_click(self) -> None:
@@ -203,11 +210,23 @@ class GpuCard(Widget):
     # ---------------------------------------------------------- animation
     def tick(self, dt: float) -> None:
         self.t += dt
-        if self.animate_enabled:
-            self.tw.step(dt)
-            fan = self.tw["fan"] or 0.0
-            self.phase = (self.phase + dt * OMEGA_MAX * fan / 100.0) % 1e6
-        self.refresh()
+        if not self.animate_enabled:
+            return  # nothing moves between polls; update_snapshot() repaints
+        easing = self.tw.step(dt)
+        fan = self.tw["fan"] or 0.0
+        self.phase = (self.phase + dt * OMEGA_MAX * fan / 100.0) % 1e6
+        # An idle card with stopped fans looks the same frame after frame: skip the repaint.
+        if easing or fan > 0.5 or self._pulsing():
+            self.refresh()
+
+    def _pulsing(self) -> bool:
+        """Is something on the card animated by time alone (heat shimmer, hot glow)?"""
+        s = self.snap
+        if s is None or s.temp is None:
+            return False
+        shimmer = s.fan is None and (s.temp - 40) / 45 > 0.2  # see heatsink_art()
+        hot = s.temp_slowdown is not None and s.temp >= s.temp_slowdown - 10
+        return shimmer or hot
 
     # -------------------------------------------------------------- render
     def _metric_row(self, label: str, bar: Text, value: str, value_w: int, spark: Text | None) -> Text:
@@ -341,6 +360,9 @@ class GpuCard(Widget):
         engines = Text(no_wrap=True, overflow="ellipsis")
         engines.append("ENC ", lab)
         engines.append(_pct(s.enc_util), val)
+        if s.enc_sessions:
+            engines.append(f" ({s.enc_sessions} session{'s' if s.enc_sessions != 1 else ''}", dim)
+            engines.append(f" · {s.enc_fps} fps)" if s.enc_fps else ")", dim)
         engines.append("   DEC ", lab)
         engines.append(_pct(s.dec_util), val)
         engines.append("   MEM BUS ", lab)
@@ -355,6 +377,9 @@ class GpuCard(Widget):
         if s.persistence is not None:
             procs.append("   persistence ", lab)
             procs.append("on" if s.persistence else "off", val)
+        if self.session:
+            procs.append("   session ", lab)
+            procs.append(self.session, val)
 
         if compact:
             one = Text(no_wrap=True, overflow="ellipsis")
@@ -386,9 +411,51 @@ def _center(t: Text, width: int) -> Text:
 
 
 # =============================================================== process table
-SORTS = ("vram", "sm", "pid", "gpu")
-SORT_LABEL = {"vram": "VRAM", "sm": "SM%", "pid": "PID", "gpu": "GPU"}
-COLUMNS = ("gpu", "pid", "user", "type", "sm", "vram", "cmd")
+SORTS = ("vram", "sm", "pid", "gpu", "unit")
+SORT_LABEL = {"vram": "VRAM", "sm": "SM%", "pid": "PID", "gpu": "GPU", "unit": "UNIT"}
+# key -> (header, width). The command column is not here: it takes whatever is left.
+COLUMN_SPECS = {
+    "gpu": ("GPU", 3),
+    "pid": ("PID", 8),
+    "user": ("USER", 10),
+    "type": ("TYPE", 4),
+    "sm": ("SM%", 4),
+    "vram": ("VRAM", 21),
+    "unit": ("UNIT", 19),
+}
+MIN_CMD = 16
+FILTER_FIELDS = ("user", "gpu", "unit", "pid", "type")
+MAX_FILTER = 80
+
+
+def parse_filter(text: str) -> list[tuple[str, str]]:
+    """Split a filter line into (field, needle) terms; field "" searches name and command."""
+    terms = []
+    for token in text[:MAX_FILTER].lower().split():
+        field, sep, needle = token.partition(":")
+        if sep and field in FILTER_FIELDS and needle:
+            terms.append((field, needle))
+        else:
+            terms.append(("", token))
+    return terms
+
+
+def matches(p: ProcessInfo, terms: list[tuple[str, str]]) -> bool:
+    """Every term must match. ``gpu:`` and ``pid:`` compare exactly, the rest by substring."""
+    for field, needle in terms:
+        if field == "gpu":
+            ok = str(p.gpu_index) == needle
+        elif field == "pid":
+            ok = str(p.pid) == needle
+        elif field == "type":
+            ok = p.kind.lower() == needle
+        elif field in ("user", "unit"):
+            ok = needle in getattr(p, field).lower()
+        else:
+            ok = needle in f"{p.name} {p.cmdline}".lower()
+        if not ok:
+            return False
+    return True
 
 
 class ProcessTable(DataTable):
@@ -411,20 +478,19 @@ class ProcessTable(DataTable):
         self.sort_key = "vram"
         self.hide_graphics = False
         self.hidden = 0  # rows left out by hide_graphics
+        self.filter_text = ""
+        self.filtered = 0  # rows left out by the filter
+        self.hidden_columns: frozenset[str] = frozenset()
         self.gpu_totals: dict[int, int] = {}
+        self._snaps: list[GpuSnapshot] = []
+        self._layout: tuple[tuple[str, ...], int] = ((), 0)  # column keys and command width in use
         self._shown: dict[str, tuple[Text, ...]] = {}  # row key -> cells currently in the table
-
-    def on_mount(self) -> None:
-        self.add_column("GPU", key="gpu", width=3)
-        self.add_column("PID", key="pid", width=8)
-        self.add_column("USER", key="user", width=10)
-        self.add_column("TYPE", key="type", width=4)
-        self.add_column("SM%", key="sm", width=4)
-        self.add_column("VRAM", key="vram", width=21)
-        self.add_column("COMMAND", key="cmd")
 
     def action_select_cursor(self) -> None:
         self.post_message(self.OpenDetail())
+
+    def on_resize(self) -> None:
+        self.update_processes(self._snaps)  # the command column follows the width
 
     def cycle_sort(self) -> str:
         self.sort_key = SORTS[(SORTS.index(self.sort_key) + 1) % len(SORTS)]
@@ -436,10 +502,27 @@ class ProcessTable(DataTable):
             "sm": lambda p: -(p.sm_util or -1),
             "pid": lambda p: p.pid,
             "gpu": lambda p: (p.gpu_index, -(p.used_memory or 0)),
+            # grouped by container / service, the unlabelled rest last
+            "unit": lambda p: (not p.unit, p.unit, -(p.used_memory or 0)),
         }[self.sort_key]
         return sorted(procs, key=key)
 
-    def _cells(self, p: ProcessInfo) -> tuple[Text, ...]:
+    def _plan(self, procs: list[ProcessInfo]) -> tuple[tuple[str, ...], int]:
+        """Which columns to show and how wide the command column can be without scrolling."""
+        keys = [k for k in COLUMN_SPECS if k not in self.hidden_columns]
+        if "unit" in keys and not any(p.unit for p in procs):
+            keys.remove("unit")  # nothing to say on a box without containers or services
+        pad = 2 * self.cell_padding
+
+        def room() -> int:
+            used = sum(COLUMN_SPECS[k][1] + pad for k in keys)
+            return self.size.width - 2 - used - pad if self.size.width else 60  # 2: vertical scrollbar
+
+        if room() < MIN_CMD and "unit" in keys:
+            keys.remove("unit")  # too narrow for both: the command matters more
+        return (*keys, "cmd"), max(MIN_CMD, room())
+
+    def _cells(self, p: ProcessInfo, columns: tuple[str, ...], cmd_width: int) -> tuple[Text, ...]:
         total = self.gpu_totals.get(p.gpu_index) or 0
         pct = 100.0 * p.used_memory / total if (p.used_memory is not None and total) else None
         vram = R.gauge(8, pct, R.MEM_GRAD, solid=True)
@@ -448,30 +531,41 @@ class ProcessTable(DataTable):
             _pct(p.sm_util) if p.sm_util is not None else "—", style=R.gradient(R.UTIL_GRAD, (p.sm_util or 0) / 100)
         )
         kind_color = {"C": "#58a6ff", "G": "#d2a8ff", "C+G": "#ffa657"}.get(p.kind, R.TEXT)
-        return (
-            Text(str(p.gpu_index), style=R.ACCENT),
-            Text(str(p.pid), style=R.TEXT),
-            Text(clean(p.user, 10), style=R.LABEL),
-            Text(p.kind, style=kind_color),
-            sm,
-            vram,
-            Text(clean(p.cmdline or p.name, 1024), style=R.TEXT, overflow="ellipsis", no_wrap=True),
-        )
+        cmd = Text(clean(p.cmdline or p.name, 1024), style=R.TEXT, no_wrap=True)
+        cmd.truncate(cmd_width, overflow="ellipsis")  # the full line is on the info screen (i)
+        cells = {
+            "gpu": Text(str(p.gpu_index), style=R.ACCENT),
+            "pid": Text(str(p.pid), style=R.TEXT),
+            "user": Text(clean(p.user, 10), style=R.LABEL),
+            "type": Text(p.kind, style=kind_color),
+            "sm": sm,
+            "vram": vram,
+            "unit": Text(clean(p.unit, 19), style="#79c0ff"),
+            "cmd": cmd,
+        }
+        return tuple(cells[c] for c in columns)
 
     def update_processes(self, snaps: list[GpuSnapshot]) -> None:
+        self._snaps = snaps
         self.gpu_totals = {s.index: s.mem_total or 0 for s in snaps}
         procs = [p for s in snaps for p in s.processes]
         shown = [p for p in procs if p.kind != "G"] if self.hide_graphics else procs
         self.hidden = len(procs) - len(shown)
-        procs = self._sorted(shown)
-        rows = {f"{p.gpu_index}:{p.pid}": self._cells(p) for p in procs}
+        terms = parse_filter(self.filter_text)
+        kept = [p for p in shown if matches(p, terms)] if terms else shown
+        self.filtered = len(shown) - len(kept)
+        procs = self._sorted(kept)
+
+        layout = self._plan(procs)
+        columns, cmd_width = layout
+        rows = {f"{p.gpu_index}:{p.pid}": self._cells(p, columns, cmd_width) for p in procs}
 
         # Same processes in the same order (the usual case): touch only the cells that
         # changed. A rebuild re-renders every visible row and resets the scroll position,
         # which costs real CPU on a desktop with dozens of graphics clients.
-        if list(rows) == list(self._shown):
+        if layout == self._layout and list(rows) == list(self._shown):
             for key, cells in rows.items():
-                for col, old, new in zip(COLUMNS, self._shown[key], cells, strict=True):
+                for col, old, new in zip(columns, self._shown[key], cells, strict=True):
                     if new != old:
                         self.update_cell(key, col, new)
             self._shown = rows
@@ -484,7 +578,15 @@ class ProcessTable(DataTable):
             except Exception:
                 selected = None
 
-        self.clear()
+        if layout != self._layout:
+            self.clear(columns=True)
+            for key in columns[:-1]:
+                label, width = COLUMN_SPECS[key]
+                self.add_column(label, key=key, width=width)
+            self.add_column("COMMAND", key="cmd", width=cmd_width)
+            self._layout = layout
+        else:
+            self.clear()
         for key, cells in rows.items():
             self.add_row(*cells, key=key)
         self._shown = rows

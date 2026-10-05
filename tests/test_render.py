@@ -88,3 +88,48 @@ def test_rate_and_energy_formatting():
     assert R.fmt_rate(2_500_000) == "2.50 GB/s"
     assert R.fmt_energy(1_775_044) == "0.49 kWh"
     assert R.fmt_energy(7200) == "2.0 Wh"
+
+
+def test_time_axis_and_stats():
+    axis = R.time_axis(60, 240)
+    assert axis.cell_len == 60
+    assert axis.plain.startswith("-4m ") and " -2m " in axis.plain and axis.plain.endswith(" now")
+    assert R.time_axis(10, 240).plain.strip() == "now"  # too narrow for the full ruler
+    assert R.time_axis(40, 0).plain.strip() == "now"  # no history yet
+    assert R.time_axis(0, 60).plain == ""
+    assert R.stats([None, 10, 30, None]) == (10, 20, 30)
+    assert R.stats([None]) is None
+
+
+def test_duration_and_session_energy_formatting():
+    assert [R.fmt_duration(s) for s in (0, 59, 60, 95, 3600, 3725)] == ["0s", "59s", "1m", "1m35s", "1h00m", "1h02m"]
+    assert R.fmt_session_energy(None) == "n/a"
+    assert R.fmt_session_energy(12.34) == "12.3 Wh"
+    assert R.fmt_session_energy(2500) == "2.50 kWh"
+    assert R.fmt_session_energy(2500, 0.30, "€") == "2.50 kWh (€0.75)"
+
+
+def test_tween_lands_on_its_target_and_reports_rest():
+    tw = R.Tween(rate=6)
+    tw.set("x", 0)
+    assert tw.step(0.05) is False  # nothing to do
+    tw.set("x", 100)
+    steps = 0
+    while tw.step(0.05):
+        steps += 1
+        assert steps < 200
+    assert tw["x"] == 100  # exactly, not asymptotically
+    tw.set("none", None)
+    assert tw.step(0.05) is False
+
+
+def test_themes_switch_the_neutral_palette_and_back():
+    default = (R.TRACK, R.DIM, R.LABEL, R.TEXT, R.BORDER)
+    try:
+        R.set_theme("high-contrast")
+        assert (R.TEXT, R.BORDER) == ("#ffffff", "#8b949e") and default[1] != R.DIM
+        R.set_theme("mono")
+        assert default == (R.TRACK, R.DIM, R.LABEL, R.TEXT, R.BORDER)
+    finally:
+        R.set_theme("default")
+    assert default == (R.TRACK, R.DIM, R.LABEL, R.TEXT, R.BORDER)

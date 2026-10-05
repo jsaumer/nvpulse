@@ -30,6 +30,7 @@ SHOTS = [
     ("kill-confirm", 1, (130, 36), 0.25, 4.0, ["k"]),
     ("help", 2, (120, 34), 0.25, 4.0, ["question_mark"]),
     ("detail", 1, (130, 36), 0.1, 26.0, ["enter"]),  # long enough to fill the history graphs
+    ("filter", 2, (140, 34), 0.25, 4.0, ["slash", *"user", "colon", *"root", "enter"]),
 ]
 
 

@@ -55,7 +55,10 @@ Requirements: Linux, Python 3.10+, and an NVIDIA driver (provides NVML /
 has braille glyphs; most modern terminals qualify.
 
 ```bash
-# from a clone of this repo
+# straight from GitHub, pinned to a release (see Releases for the latest tag)
+pipx install git+https://github.com/jsaumer/nvpulse.git@v0.2.0
+
+# or from a clone of this repo
 pipx install .
 
 # or, for development
@@ -63,7 +66,9 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e '.[dev]'
 ```
 
-This installs two commands: `nvpulse`, and `nvidia-smi+` as an alias.
+This installs two commands: `nvpulse`, and `nvidia-smi+` as an alias. To move to a
+newer release, run the first command again with the new tag and `--force`.
+nvpulse is not on PyPI.
 
 ## Usage
 

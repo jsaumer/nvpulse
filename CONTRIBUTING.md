@@ -108,15 +108,18 @@ and render it in `ui/detail.py`. It is then only polled while the detail view is
 
 1. Bump `__version__` in `src/nvpulse/__init__.py`, and turn `[Unreleased]` in
    `CHANGELOG.md` into the new version with a fresh empty `[Unreleased]` above it.
-2. Commit, then `git tag -a vX.Y.Z -m "vX.Y.Z"` and push the commit and the tag.
-3. Publish a GitHub release for the tag. That triggers `.github/workflows/release.yml`,
-   which builds the package and uploads it to PyPI.
+2. Update the tag in the README's `pipx install git+https://…@vX.Y.Z` line.
+3. Commit, then `git tag -a vX.Y.Z -m "vX.Y.Z"` and push the commit and the tag.
+4. Publish a GitHub release for the tag, with the changelog section as its notes.
 
-PyPI publishing uses [trusted publishing](https://docs.pypi.org/trusted-publishers/),
-so there is no token to manage. It needs a one-time setup by the project owner:
+People install from GitHub at a tag; nvpulse is not on PyPI. A PyPI upload makes
+the source public whatever the repository's visibility, and a version number can
+never be reused, so it is a separate, deliberate step: `.github/workflows/release.yml`
+only runs when started by hand from a version tag (Actions → Release → Run workflow).
+It uses [trusted publishing](https://docs.pypi.org/trusted-publishers/), so there
+is no token to manage, but it needs a one-time setup by the project owner first:
 on PyPI, add a (pending) trusted publisher for owner `jsaumer`, repository
-`nvpulse`, workflow `release.yml`, environment `pypi`; and create a `pypi`
-environment in the GitHub repository settings.
+`nvpulse`, workflow `release.yml`, environment `pypi`.
 
 ## Reporting security issues
 

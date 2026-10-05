@@ -18,8 +18,9 @@ python scripts/make_screenshots.py [--gif]   # regenerate docs/images (gif needs
 
 CI (`.github/workflows/ci.yml`) runs lint, tests on 3.10–3.13, `pip-audit --strict`
 and a build. Keep it green. `release.yml` publishes to PyPI (trusted publishing)
-when a GitHub release is published; a tag alone does nothing. Release steps are
-in `CONTRIBUTING.md`.
+but only when started by hand from a version tag; tags and GitHub releases never
+trigger it. nvpulse is not on PyPI: people install from GitHub at a tag, and the
+README's install line carries the current tag. Release steps are in `CONTRIBUTING.md`.
 
 ## Layout
 

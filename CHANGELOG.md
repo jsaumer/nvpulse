@@ -6,6 +6,11 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- The PyPI release workflow now runs only when started by hand from a version
+  tag. Publishing a GitHub release no longer triggers it.
+- The README shows how to install straight from GitHub at a release tag.
+
 ## [0.2.0] - 2026-10-05
 
 ### Added

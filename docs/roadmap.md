@@ -21,8 +21,9 @@ Rough priorities, not promises. Open an issue if you'd like to push something up
 - [ ] Validate on more hardware. Covered so far: one consumer desktop card
       (RTX 4070 SUPER, zero-RPM idle fans). Still open: multi-GPU, laptop,
       workstation, datacenter, WSL. `--dump` output from any of these helps
-- [ ] First PyPI release, so `pipx install nvpulse` works (the workflow is in
-      place; it needs the project registered on PyPI)
+- [ ] Decide whether to publish on PyPI. Installing from GitHub at a tag works
+      today; PyPI would add `pipx install nvpulse` and `pipx upgrade`. The
+      workflow exists and is manual-only
 - [ ] Config file (`~/.config/nvpulse/config.toml`): default interval, fps, sort,
       colour thresholds, hidden columns
 - [ ] Theme presets (default, high-contrast, monochrome / `NO_COLOR`)

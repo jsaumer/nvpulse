@@ -130,8 +130,9 @@ so no driver string can carry a control character to the terminal.
 
 - The CI workflow runs with `permissions: contents: read`, and checkouts use
   `persist-credentials: false`.
-- The release workflow only runs when a GitHub release is published. It uploads
-  to PyPI through trusted publishing (OIDC), so no API token exists to steal.
+- The release workflow only runs when a maintainer starts it by hand from a
+  version tag; no push, tag or release triggers it. It uploads to PyPI through
+  trusted publishing (OIDC), so no API token exists to steal.
   `id-token: write` is granted to the publish job alone, which runs no code
   from the repository: it downloads the artifact the build job made.
 - Every third-party action is pinned to a full commit SHA. Dependabot updates

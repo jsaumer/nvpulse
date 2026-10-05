@@ -8,7 +8,7 @@ import socket
 import time
 from dataclasses import dataclass, field
 
-from .models import Backend, GpuSnapshot, ProcessInfo, SystemInfo
+from .models import Backend, GpuDetail, GpuSnapshot, ProcessInfo, SystemInfo
 
 GiB = 1024**3
 
@@ -62,6 +62,14 @@ class _Gpu:
     procs: list[_Proc] = field(default_factory=list)
 
 
+def _uuid(index: int) -> str:
+    return f"GPU-6d6f636b-0000-4000-8000-{index:012x}"  # "mock" in hex, so it parses like a real UUID
+
+
+def _bus_id(index: int) -> str:
+    return f"00000000:{0x01 + index * 0x20:02X}:00.0"
+
+
 class MockBackend(Backend):
     def __init__(self, count: int = 1, seed: int | None = None, clock=time.monotonic) -> None:
         self._rng = random.Random(seed)
@@ -83,7 +91,12 @@ class MockBackend(Backend):
                     self._spawn(g)
 
     def _spawn(self, g: _Gpu) -> None:
-        name, cmd, kind, mem = self._rng.choice(PROC_POOL)
+        # only workloads that fit: a 24 GiB card shouldn't open on a 23 GiB process
+        room = g.profile[1] * 0.85 - sum(p.mem_gib for p in g.procs)
+        fits = [p for p in PROC_POOL if p[3] * 1.3 <= room]
+        if not fits:
+            return
+        name, cmd, kind, mem = self._rng.choice(fits)
         self._next_pid += self._rng.randint(3, 900)
         g.procs.append(
             _Proc(
@@ -116,6 +129,34 @@ class MockBackend(Backend):
 
     def device_count(self) -> int:
         return len(self._gpus)
+
+    def identify(self) -> list[tuple[int, str, str]]:
+        return [(g.index, _uuid(g.index), _bus_id(g.index)) for g in self._gpus]
+
+    def detail(self, index: int) -> GpuDetail | None:
+        g = next((g for g in self._gpus if g.index == index), None)
+        if g is None:
+            return None
+        _name, _vram, plimit, idle, nfans, slowdown = g.profile
+        t = self._clock() - self._t0
+        busy = max(0.0, g.temp - 38) / 50
+        return GpuDetail(
+            index=index,
+            vbios=f"95.02.{0x3C + index:02X}.00.{0x90 + index:02X}",
+            fan_rpm=[int(g.fan * 32) for _ in range(nfans)],
+            fan_target=[round(g.fan) for _ in range(nfans)],
+            temp_target=slowdown - 6.0,
+            temp_max_operating=slowdown - 1.0,
+            power_default_limit=float(plimit),
+            energy=(86_400 + t) * (idle + (plimit - idle) * 0.3),
+            clock_video=int(1185 + busy * 765),
+            clock_video_max=1950,
+            pcie_tx=int(self._rng.uniform(200, 900) + busy * 180_000),
+            pcie_rx=int(self._rng.uniform(400, 2_000) + busy * 420_000),
+            pcie_replay=0,
+            ecc_corrected=None if nfans else 0,  # consumer cards have no ECC
+            ecc_uncorrected=None if nfans else 0,
+        )
 
     def poll(self, indices: list[int] | None = None) -> list[GpuSnapshot]:
         now = self._clock()
@@ -163,13 +204,16 @@ class MockBackend(Backend):
                 )
                 for p in g.procs
             ]
-            fans = [round(g.fan + self._rng.uniform(-1, 1), 0) for _ in range(nfans)]
+            fans = [max(0.0, round(g.fan + self._rng.uniform(-1, 1), 0)) if g.fan >= 1 else 0.0 for _ in range(nfans)]
+            reasons = 0x001 if util < 2 else (0x004 if util > 92 else 0)
+            if g.temp >= slowdown - 2:
+                reasons |= 0x020
             out.append(
                 GpuSnapshot(
                     index=g.index,
                     name=name,
-                    uuid=f"GPU-mock-{g.index:04d}",
-                    bus_id=f"00000000:{0x01 + g.index * 0x20:02X}:00.0",
+                    uuid=_uuid(g.index),
+                    bus_id=_bus_id(g.index),
                     util_gpu=round(util),
                     util_mem=round(util * 0.45),
                     mem_total=vram * GiB,
@@ -189,8 +233,12 @@ class MockBackend(Backend):
                     enc_util=float(self._rng.choice([0, 0, 0, 12, 34])),
                     dec_util=float(self._rng.choice([0, 0, 8, 21])),
                     pcie_gen=4 if util > 5 else 1,
-                    pcie_width=16,
+                    pcie_width=8 if g.index % len(PROFILES) == 5 else 16,  # one card in a narrow slot
+                    pcie_gen_max=4,
+                    pcie_gen_device_max=4,
+                    pcie_width_max=16,
                     persistence=True,
+                    clock_reasons=reasons,
                     processes=procs,
                 )
             )

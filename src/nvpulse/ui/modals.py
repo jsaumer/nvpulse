@@ -7,6 +7,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
+from .. import __version__
 from ..killer import KillTarget
 
 MODAL_CSS = """
@@ -15,7 +16,7 @@ ModalScreen { align: center middle; background: #010409 60%; }
     width: 64; height: auto; padding: 1 2;
     border: round #f85149; background: #161b22;
 }
-#dialog.help { border: round #76b900; width: 56; }
+#dialog.help { border: round #76b900; width: 70; }
 #dialog Static { width: 100%; }
 #buttons { height: auto; margin-top: 1; align: right middle; }
 #buttons Button { margin-left: 2; min-width: 10; }
@@ -61,21 +62,35 @@ class ConfirmKill(ModalScreen[bool]):
         self.dismiss(value)
 
 
-HELP = """[b #76b900]nvpulse[/] keys
+KEYS = [
+    ("q", "quit"),
+    ("p / space", "pause / resume polling"),
+    ("+ / -", "poll faster / slower"),
+    ("c", "toggle compact / expanded cards"),
+    ("a", "toggle animation"),
+    ("s", "cycle process sort (VRAM, SM%, PID, GPU)"),
+    ("g", "hide / show graphics-only processes"),
+    ("enter", "GPU detail view (or click a card)"),
+    ("k", "SIGTERM selected process (confirms first)"),
+    ("K", "SIGKILL selected process (off with --read-only)"),
+    ("↑ ↓", "move in process table"),
+    ("?", "this help"),
+]
 
-  [b]q[/]        quit
-  [b]p[/] / space  pause / resume polling
-  [b]+[/] / [b]-[/]    poll faster / slower
-  [b]c[/]        toggle compact / expanded cards
-  [b]a[/]        toggle animation
-  [b]s[/]        cycle process sort (VRAM, SM%, PID, GPU)
-  [b]k[/]        SIGTERM selected process (confirms first)
-  [b]K[/]        SIGKILL selected process (off with --read-only)
-  [b]↑ ↓[/]      move in process table
-  [b]?[/]        this help
 
-[#8b949e]Any nvidia-smi flag (e.g. -q, -L, --query-gpu=…) is
-forwarded to the real nvidia-smi.[/]"""
+def help_text() -> Text:
+    width = max(len(keys) for keys, _ in KEYS)
+    t = Text()
+    t.append("nvpulse", style="bold #76b900")
+    t.append(f" {__version__}", style="#8b949e")
+    t.append("  keys\n\n")
+    for keys, what in KEYS:
+        t.append(f"  {keys:<{width}}", style="bold")
+        t.append(f"   {what}\n")
+    t.append(
+        "\nAny nvidia-smi flag (e.g. -q, -L, --query-gpu=…) is\nforwarded to the real nvidia-smi.", style="#8b949e"
+    )
+    return t
 
 
 class HelpScreen(ModalScreen[None]):
@@ -83,7 +98,7 @@ class HelpScreen(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog", classes="help"):
-            yield Static(HELP)
+            yield Static(help_text(), markup=False)
 
     def action_close(self) -> None:
         self.dismiss(None)

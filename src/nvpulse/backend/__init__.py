@@ -1,6 +1,6 @@
-from .models import Backend, GpuSnapshot, ProcessInfo, SystemInfo
+from .models import Backend, GpuDetail, GpuSnapshot, ProcessInfo, SystemInfo
 
-__all__ = ["Backend", "GpuSnapshot", "ProcessInfo", "SystemInfo", "make_backend"]
+__all__ = ["Backend", "GpuDetail", "GpuSnapshot", "ProcessInfo", "SystemInfo", "make_backend"]
 
 
 def make_backend(mock: int | None = None, seed: int | None = None) -> Backend:

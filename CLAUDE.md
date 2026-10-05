@@ -8,27 +8,33 @@ Repo: https://github.com/jsaumer/nvpulse (MIT). Commands: `nvpulse`, alias `nvid
 
 ```bash
 pip install -e '.[dev]'          # dev install (venv recommended)
-pytest -q                        # 75 tests; no GPU needed
+pytest -q                        # 128 tests; no GPU needed
 ruff check . && ruff format --check .
 nvpulse --mock 3                 # run with simulated GPUs
 nvpulse                          # real hardware (needs NVIDIA driver / NVML)
-python scripts/make_screenshots.py [--gif]   # regenerate docs/images (gif needs playwright + pillow)
+nvpulse --dump                   # one anonymised JSON snapshot (good source for test fixtures)
+python scripts/make_screenshots.py [--gif]   # regenerate docs/images (gif needs playwright + pillow; uses system Chrome if present)
 ```
 
 CI (`.github/workflows/ci.yml`) runs lint, tests on 3.10–3.13, `pip-audit --strict`
-and a build. Keep it green.
+and a build. Keep it green. `release.yml` publishes to PyPI (trusted publishing)
+when a GitHub release is published; a tag alone does nothing. Release steps are
+in `CONTRIBUTING.md`.
 
 ## Layout
 
 ```
 src/nvpulse/
-  cli.py        argparse (allow_abbrev=False), passthrough to real nvidia-smi, value clamping
+  cli.py        argparse (allow_abbrev=False), passthrough to real nvidia-smi, value clamping, -i selectors
+  dump.py       --dump: anonymised JSON snapshot on stdout
   procinfo.py   pid -> user/name/cmdline/start time via psutil; sanitises + redacts
   sanitize.py   clean() for untrusted text, redact() for secrets
   killer.py     safe signalling: pidfd pinning, start-time PID-reuse check, PID guards
   backend/      models.py (dataclasses + Backend iface), nvml.py (real), mock.py (simulated)
-  ui/           render.py (pure Rich renderers), widgets.py, modals.py, app.py (Textual App)
+  ui/           render.py (pure Rich renderers), widgets.py, detail.py (GPU detail view),
+                modals.py, app.py (Textual App)
 tests/          test_render.py, test_cli_and_app.py, test_security.py, test_nvml.py (fake pynvml)
+.github/        workflows/ci.yml, workflows/release.yml (PyPI), dependabot.yml
 docs/           architecture.md, security.md, roadmap.md, troubleshooting.md, images/
 ```
 
@@ -40,7 +46,13 @@ before touching anything that displays process data, signals processes or execs 
 - **Two clocks.** The poll timer runs `backend.poll()` and `enrich()` in a thread
   worker, then `apply_snapshots()` on the UI thread. The animation timer (`--fps`)
   calls `GpuCard.tick(dt)`: tweening, fan phase, pulses. No I/O ever happens on
-  the animation path.
+  the animation path. The first poll goes through the worker too.
+- **Fast poll, slow detail.** `poll()` is what every card needs each tick.
+  `Backend.detail()` (PCIe throughput, RPM, energy, ECC, VBIOS) is slower and only
+  runs while the detail view is open (`app.detail_index`).
+- **Backend lock.** Every backend call in the worker holds `_backend_lock`, and
+  shutdown takes it before `backend.close()`. Closing NVML under a running poll
+  segfaults.
 - **Backends return `None` for anything unsupported.** Every NVML call goes through
   `_safe()`. The UI shows "n/a".
 - **Rendering is pure.** Drawing logic lives in `ui/render.py` as functions returning
@@ -52,16 +64,18 @@ before touching anything that displays process data, signals processes or execs 
 
 1. **Process data is hostile.** Anything from `/proc`, psutil or NVML must pass
    through `sanitize.clean()` before display. Never render it as markup: use
-   `rich.text.Text`, `Static(..., markup=False)`, or `textual.markup.escape` (border
-   titles are always parsed as markup). Use `App._say()` for notifications, never
-   `notify()` with interpolated data.
+   `rich.text.Text` or `Static(..., markup=False)`. Border titles given as `str`
+   are parsed as markup, so set them as `Text` (`textual.markup.escape` only
+   covers complete `[tags]` and is not enough). Use `App._say()` for
+   notifications, never `notify()` with interpolated data.
 2. **All signals go through `killer.py`** (`prepare()` when the dialog opens, then
    `send()`). Never call `os.kill` directly. Mock mode must never touch real PIDs.
 3. **No shell.** Exec via argument lists only (`os.execve`). Passthrough binaries must
    pass `_trusted_executable()`.
 4. **Keep NVML off the UI thread.**
 5. **No network access, telemetry or persistent writes** without an explicit decision
-   recorded in `docs/security.md`.
+   recorded in `docs/security.md`. `--dump` writes to stdout only and must stay
+   free of hostnames, UUIDs, PIDs, user names and command lines.
 6. **GitHub Actions stay pinned to full commit SHAs** with a `# vX.Y.Z` comment.
    Workflow `permissions` stay at `contents: read` unless a job truly needs more.
 7. Every user-visible change gets a line under `## [Unreleased]` in `CHANGELOG.md`.
@@ -88,6 +102,20 @@ before touching anything that displays process data, signals processes or execs 
   the wagon-wheel aliasing limit. Don't raise it without checking per-frame step
   < half a blade sector.
 - **`ENABLE_COMMAND_PALETTE = False` is deliberate** (see security.md §6).
+- **Bindings older than a call raise on lookup.** `N.nvmlDeviceGetX` fails with
+  AttributeError before `_safe()` runs when nvidia-ml-py predates the call (the
+  12.535 floor lacks `nvmlDeviceGetFanSpeedRPM`). Use `_call("name", …)` and
+  `_const("NAME")` in `nvml.py` for anything newer than the floor. The fake in
+  `tests/test_nvml.py` models this with its `missing` set.
+- **Real hardware lies about throttling.** An idle desktop card reports "software
+  power cap" continuously and drops its PCIe link to Gen 1. Neither is a fault,
+  so neither raises a badge or warning (`models.CLOCK_REASONS`, `pcie_downgrade`).
+- **Polls can land after teardown.** `apply_snapshots()` and `feed_detail()` use
+  `query()` and bail out when their widgets are gone; `query_one()` there raises
+  on exit.
+- **App bindings don't fire under a modal,** which is what keeps `k` from acting
+  on a hidden row while the detail view is open. `DataTable` binds `enter` itself;
+  `ProcessTable` rebinds it to open the detail view.
 
 ## Style
 

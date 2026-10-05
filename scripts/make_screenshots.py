@@ -6,8 +6,8 @@ Runs the app headless against the mock backend, so no GPU is needed.
     python scripts/make_screenshots.py            # SVG stills -> docs/images/
     python scripts/make_screenshots.py --gif      # also docs/images/demo.gif
 
-The GIF path needs extra tools: ``pip install playwright pillow`` and a Chromium
-that Playwright can launch.
+The GIF path needs extra tools: ``pip install playwright pillow`` and either
+Playwright's own Chromium (``playwright install chromium``) or an installed Chrome.
 """
 
 from __future__ import annotations
@@ -23,22 +23,23 @@ from nvpulse.ui.app import NvPulse
 OUT = Path(__file__).resolve().parent.parent / "docs" / "images"
 
 SHOTS = [
-    # name, gpu count, terminal size, keys to press before capture
-    ("single-gpu", 1, (130, 36), []),
-    ("multi-gpu", 4, (150, 40), []),
-    ("eight-gpu", 8, (200, 50), []),
-    ("kill-confirm", 1, (130, 36), ["k"]),
-    ("help", 2, (120, 34), ["question_mark"]),
+    # name, gpu count, terminal size, poll interval, seconds to wait, keys to press before capture
+    ("single-gpu", 1, (130, 36), 0.25, 4.0, []),
+    ("multi-gpu", 4, (150, 40), 0.25, 4.0, []),
+    ("eight-gpu", 8, (200, 50), 0.25, 4.0, []),
+    ("kill-confirm", 1, (130, 36), 0.25, 4.0, ["k"]),
+    ("help", 2, (120, 34), 0.25, 4.0, ["question_mark"]),
+    ("detail", 1, (130, 36), 0.1, 26.0, ["enter"]),  # long enough to fill the history graphs
 ]
 
 
 async def stills() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
-    for name, n, size, keys in SHOTS:
-        app = NvPulse(MockBackend(n, seed=7), interval=0.25)
+    for name, n, size, interval, wait, keys in SHOTS:
+        app = NvPulse(MockBackend(n, seed=7), interval=interval)
         app.as_root = False  # containers/CI often run as root; keep the ROOT badge out of docs
         async with app.run_test(size=size) as pilot:
-            await pilot.pause(4.0)  # let history and sparklines fill a little
+            await pilot.pause(wait)  # let history and sparklines fill a little
             for key in keys:
                 await pilot.press(key)
                 await pilot.pause(0.4)
@@ -46,7 +47,14 @@ async def stills() -> None:
         print("wrote", OUT / f"{name}.svg")
 
 
-async def gif(frames: int = 36, fps: int = 12) -> None:
+async def _browser(playwright):
+    try:
+        return await playwright.chromium.launch()
+    except Exception:  # no bundled Chromium downloaded: use the system Chrome
+        return await playwright.chromium.launch(channel="chrome")
+
+
+async def gif(frames: int = 30, fps: int = 10, colors: int = 160) -> None:
     from PIL import Image
     from playwright.async_api import async_playwright
 
@@ -54,7 +62,7 @@ async def gif(frames: int = 36, fps: int = 12) -> None:
         svgs = []
         app = NvPulse(MockBackend(2, seed=11), interval=0.25, fps=fps)
         app.as_root = False
-        async with app.run_test(size=(130, 30)) as pilot:
+        async with app.run_test(size=(112, 26)) as pilot:
             await pilot.pause(4.0)
             for i in range(frames):
                 path = Path(tmp) / f"f{i:03d}.svg"
@@ -64,7 +72,7 @@ async def gif(frames: int = 36, fps: int = 12) -> None:
 
         pngs = []
         async with async_playwright() as p:
-            browser = await p.chromium.launch()
+            browser = await _browser(p)
             page = await browser.new_page()
             for svg in svgs:
                 await page.goto(svg.as_uri())
@@ -73,7 +81,10 @@ async def gif(frames: int = 36, fps: int = 12) -> None:
                 pngs.append(png)
             await browser.close()
 
-        images = [Image.open(p).convert("P", palette=Image.Palette.ADAPTIVE) for p in pngs]
+        # few colours and one palette for every frame: that is most of the file size
+        frames_rgb = [Image.open(p).convert("RGB") for p in pngs]
+        palette = frames_rgb[len(frames_rgb) // 2].quantize(colors=colors, dither=Image.Dither.NONE)
+        images = [f.quantize(palette=palette, dither=Image.Dither.NONE) for f in frames_rgb]
         images[0].save(
             OUT / "demo.gif", save_all=True, append_images=images[1:], duration=int(1000 / fps), loop=0, optimize=True
         )

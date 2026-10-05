@@ -37,12 +37,16 @@ pytest
 - `tests/test_render.py` covers the pure rendering helpers (gauges, sparklines, fan art).
 - `tests/test_cli_and_app.py` covers the CLI routing and drives the full app headless
   with Textual's `run_test()` pilot.
+- `tests/test_nvml.py` runs the NVML backend against a fake `pynvml` that replays
+  values recorded from real hardware. Output from `nvpulse --dump` is a good
+  source for more of these.
+- `tests/test_security.py` holds a regression test for every hardening measure.
 
 If you change anything visual, regenerate the screenshots and include them in the PR:
 
 ```bash
 python scripts/make_screenshots.py          # SVG stills
-python scripts/make_screenshots.py --gif    # + demo.gif (needs playwright + pillow)
+python scripts/make_screenshots.py --gif    # + demo.gif (needs playwright + pillow, and Chrome or Playwright's Chromium)
 ```
 
 ## Project layout
@@ -50,16 +54,18 @@ python scripts/make_screenshots.py --gif    # + demo.gif (needs playwright + pil
 ```
 src/nvpulse/
   cli.py              argument parsing, nvidia-smi passthrough, backend selection
+  dump.py             --dump: one anonymised JSON snapshot on stdout
   procinfo.py         PID -> user / name / cmdline enrichment (psutil)
   sanitize.py         untrusted-text cleaning + secret redaction
   killer.py           safe signalling (pidfd pinning, PID-reuse checks)
   backend/
-    models.py         GpuSnapshot / ProcessInfo / SystemInfo + Backend interface
+    models.py         GpuSnapshot / GpuDetail / ProcessInfo / SystemInfo + Backend interface
     nvml.py           real hardware via NVML (nvidia-ml-py)
     mock.py           simulated GPUs
   ui/
     render.py         pure Rich renderers: gradients, gauges, heat bar, sparkline, fan art
     widgets.py        HeaderBar, GpuCard, ProcessTable
+    detail.py         per-GPU detail view (modal)
     modals.py         kill confirmation + help screens
     app.py            Textual App: poll worker, animation clock, layout
 tests/                pytest suite
@@ -77,7 +83,7 @@ See [docs/architecture.md](docs/architecture.md) for how data and animation flow
   return `rich.text.Text`, so it stays unit-testable. Widgets only lay out.
 - **Treat process data as hostile.** Anything from `/proc`, psutil or NVML must go
   through `sanitize.clean()` before display, and must never be rendered as
-  markup: use `rich.text.Text`, `markup=False`, or `textual.markup.escape`. For
+  markup: use `rich.text.Text` (also for border titles) or `markup=False`. For
   notifications use `App._say()`. See [docs/security.md](docs/security.md).
 - **Never let a missing metric crash the UI.** Backends return `None` for anything
   unsupported, and the UI shows "n/a".
@@ -93,6 +99,24 @@ See [docs/architecture.md](docs/architecture.md) for how data and animation flow
 2. Populate it in `backend/nvml.py` through `_safe(...)`, and in `backend/mock.py`.
 3. Render it in `GpuCard` (and add a `Tween` key if it should animate).
 4. Add a test.
+
+If the NVML call is slow (more than a millisecond or two) or only interesting
+when someone goes looking, put it in `GpuDetail` / `Backend.detail()` instead,
+and render it in `ui/detail.py`. It is then only polled while the detail view is open.
+
+## Releasing
+
+1. Bump `__version__` in `src/nvpulse/__init__.py`, and turn `[Unreleased]` in
+   `CHANGELOG.md` into the new version with a fresh empty `[Unreleased]` above it.
+2. Commit, then `git tag -a vX.Y.Z -m "vX.Y.Z"` and push the commit and the tag.
+3. Publish a GitHub release for the tag. That triggers `.github/workflows/release.yml`,
+   which builds the package and uploads it to PyPI.
+
+PyPI publishing uses [trusted publishing](https://docs.pypi.org/trusted-publishers/),
+so there is no token to manage. It needs a one-time setup by the project owner:
+on PyPI, add a (pending) trusted publisher for owner `jsaumer`, repository
+`nvpulse`, workflow `release.yml`, environment `pypi`; and create a `pypi`
+environment in the GitHub repository settings.
 
 ## Reporting security issues
 

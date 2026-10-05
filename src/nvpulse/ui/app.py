@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import signal
+import threading
 import time
 
 from textual import work
@@ -11,16 +14,18 @@ from textual.binding import Binding
 from textual.containers import Container, Vertical, VerticalScroll
 from textual.widgets import Footer, Static
 
-from ..backend.models import Backend, GpuSnapshot
+from ..backend.models import Backend, GpuDetail, GpuSnapshot, SystemInfo
 from ..killer import KillRefused, KillTarget, check_pid, prepare, send
 from ..procinfo import enrich
 from ..sanitize import clean
+from .detail import DetailView, GpuDetailScreen
 from .modals import MODAL_CSS, ConfirmKill, HelpScreen
 from .widgets import SORT_LABEL, GpuCard, HeaderBar, ProcessTable
 
 CARD_MIN_W = {True: 62, False: 96}  # compact, expanded
 CARD_H = {True: 7, False: 11}
 INTERVALS = (0.25, 0.5, 1.0, 2.0, 5.0, 10.0)
+EXIT_SIGNALS = (signal.SIGTERM, signal.SIGHUP)
 
 
 class NvPulse(App):
@@ -51,6 +56,8 @@ class NvPulse(App):
         Binding("c", "compact", "Compact"),
         Binding("a", "toggle_anim", "Anim", show=False),
         Binding("s", "sort", "Sort"),
+        Binding("g", "toggle_graphics", "Graphics"),
+        Binding("enter", "detail", "Detail"),
         Binding("k", "kill(False)", "Term"),
         Binding("K", "kill(True)", "Kill", show=False),
         Binding("question_mark", "help", "Help"),
@@ -67,10 +74,12 @@ class NvPulse(App):
         compact: bool | None = None,
         redact: bool = True,
         read_only: bool = False,
+        hide_graphics: bool = False,
     ) -> None:
         super().__init__()
         self.redact = redact
         self.read_only = read_only
+        self.hide_graphics = hide_graphics
         self.as_root = hasattr(os, "geteuid") and os.geteuid() == 0
         self.backend = backend
         self.interval = interval
@@ -81,12 +90,20 @@ class NvPulse(App):
         self.paused = False
         self.cards: dict[int, GpuCard] = {}
         self._polling = False
+        self._have_info = False
+        # Held around every backend call. close() takes it too: shutting NVML down
+        # under a poll that is still inside the driver crashes the process.
+        self._backend_lock = threading.Lock()
+        self._closed = False
         self._last_tick = time.monotonic()
         self._snaps: list[GpuSnapshot] = []
+        self.detail_index: int | None = None  # GPU shown in the detail view, if open
+        self._detail_failed = False  # warn once per opening, not on every poll
+        self.detail: GpuDetail | None = None
 
     # ---------------------------------------------------------------- layout
     def compose(self) -> ComposeResult:
-        self.header = HeaderBar(self.backend.system_info())
+        self.header = HeaderBar(SystemInfo())  # versions arrive with the first poll
         self.header.interval = self.interval
         self.header.as_root = self.as_root
         self.header.read_only = self.read_only
@@ -99,15 +116,33 @@ class NvPulse(App):
 
     def on_mount(self) -> None:
         self.table = self.query_one(ProcessTable)
+        self.table.hide_graphics = self.hide_graphics
+        self._procs_box = self.query_one("#procs")
         self._update_proc_title()
-        snaps = self.backend.poll(self.indices)
-        enrich([p for s in snaps for p in s.processes], redact_secrets=self.redact)
-        self.apply_snapshots(snaps)
-        if not snaps:
-            self.query_one("#gpus").mount(Static("No NVIDIA GPUs found.", id="empty"))
         self.anim_timer = self.set_interval(1.0 / (self.fps if self.animate else 2.0), self.animate_tick)
         self.poll_timer = self.set_interval(self.interval, self.request_poll)
+        self._handle_exit_signals(True)
+        self.request_poll()  # the first poll goes through the worker like every other
         self.table.focus()
+
+    def _handle_exit_signals(self, install: bool) -> None:
+        """Leave through Textual's normal shutdown on SIGTERM / SIGHUP.
+
+        The default action kills the process mid-frame: the terminal stays in the
+        alternate screen with mouse reporting on, and NVML is never shut down.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            for sig in EXIT_SIGNALS:
+                if install:
+                    loop.add_signal_handler(sig, self._on_exit_signal, sig)
+                else:
+                    loop.remove_signal_handler(sig)
+        except (NotImplementedError, RuntimeError, ValueError):  # not the main thread, or no Unix signals
+            pass
+
+    def _on_exit_signal(self, sig: int) -> None:
+        self.exit(return_code=128 + sig)
 
     def _compact(self) -> bool:
         if self.force_compact is not None:
@@ -132,16 +167,31 @@ class NvPulse(App):
         self.relayout()
 
     # ------------------------------------------------------------------ data
-    def request_poll(self) -> None:
-        if self.paused or self._polling:
+    def request_poll(self, force: bool = False) -> None:
+        """Start a poll unless one is running. ``force`` polls even while paused."""
+        if self._polling or (self.paused and not force):
             return
         self._polling = True
         self._poll_worker()
 
     @work(thread=True, exclusive=False, group="poll")
     def _poll_worker(self) -> None:
+        info = detail = snaps = None
         try:
-            snaps = self.backend.poll(self.indices)
+            with self._backend_lock:
+                if self._closed:
+                    return
+                if not self._have_info:
+                    info = self.backend.system_info()
+                snaps = self.backend.poll(self.indices)
+                index = self.detail_index
+                if index is not None:
+                    try:
+                        detail = self.backend.detail(index)
+                    except Exception as exc:  # the extras must never freeze the dashboard
+                        if not self._detail_failed:
+                            self._detail_failed = True
+                            self.call_from_thread(self._say, f"detail readings failed: {exc}", "warning")
             enrich([p for s in snaps for p in s.processes], redact_secrets=self.redact)
         except Exception as exc:  # keep the UI alive on driver hiccups
             self.call_from_thread(self._say, f"poll failed: {exc}", "error")
@@ -149,11 +199,26 @@ class NvPulse(App):
         finally:
             self._polling = False
         if snaps is not None:
-            self.call_from_thread(self.apply_snapshots, snaps)
+            self.call_from_thread(self.apply_snapshots, snaps, info, detail)
 
-    def apply_snapshots(self, snaps: list[GpuSnapshot]) -> None:
+    def apply_snapshots(
+        self, snaps: list[GpuSnapshot], info: SystemInfo | None = None, detail: GpuDetail | None = None
+    ) -> None:
+        found = self.query("#gpus")
+        if not found:  # a poll that finished while the app was shutting down
+            return
+        grid = found.first()
         self._snaps = snaps
-        grid = self.query_one("#gpus")
+        if info is not None:
+            self._have_info = True
+            self.header.info = info
+        if detail is not None:
+            self.detail = detail
+        empty = self.query("#empty")
+        if snaps and empty:
+            empty.remove()
+        elif not snaps and not empty:
+            grid.mount(Static("No NVIDIA GPUs found.", id="empty"))
         seen = set()
         new_cards = []
         for s in snaps:
@@ -174,6 +239,7 @@ class NvPulse(App):
         self.header.set_totals(snaps)
         self.table.update_processes(snaps)
         self._update_proc_title()
+        self.feed_detail()
 
     # ------------------------------------------------------------- animation
     def animate_tick(self) -> None:
@@ -187,10 +253,11 @@ class NvPulse(App):
 
     # --------------------------------------------------------------- actions
     def _update_proc_title(self) -> None:
-        procs = self.query_one("#procs")
+        procs = self._procs_box
         n = self.table.row_count
-        procs.border_title = f" Processes · {n} "
-        procs.border_subtitle = f" sort: {SORT_LABEL[self.table.sort_key]} ▼ · k term · K kill "
+        hidden = f" · {self.table.hidden} graphics hidden" if self.table.hide_graphics else ""
+        procs.border_title = f" Processes · {n}{hidden} "
+        procs.border_subtitle = f" sort: {SORT_LABEL[self.table.sort_key]} ▼ · g graphics · k term · K kill "
 
     def action_pause(self) -> None:
         self.paused = not self.paused
@@ -230,8 +297,68 @@ class NvPulse(App):
         self.table.update_processes(self._snaps)
         self._update_proc_title()
 
+    def action_toggle_graphics(self) -> None:
+        self.table.hide_graphics = not self.table.hide_graphics
+        self.table.update_processes(self._snaps)
+        self._update_proc_title()
+
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
+
+    # ----------------------------------------------------------- detail view
+    def action_detail(self, index: int | None = None) -> None:
+        """Open the detail view for ``index``, or for the selected process's GPU."""
+        if isinstance(self.screen, GpuDetailScreen):
+            return
+        shown = [s.index for s in self._snaps]
+        if not shown:
+            self._say("no GPU to show", "warning")
+            return
+        if index is None:
+            sel = self.table.selected_process()
+            index = sel[0] if sel else shown[0]
+        if index not in shown:
+            index = shown[0]
+        self.detail_index, self.detail, self._detail_failed = index, None, False
+
+        def closed(_result: None) -> None:
+            self.detail_index = self.detail = None
+
+        self.push_screen(GpuDetailScreen(index), closed)
+        self.request_poll(force=True)  # fetch the extra readings now, even if paused
+
+    def on_gpu_card_open(self, message: GpuCard.Open) -> None:
+        self.action_detail(message.index)
+
+    def on_process_table_open_detail(self, _message: ProcessTable.OpenDetail) -> None:
+        self.action_detail()
+
+    def step_detail(self, delta: int) -> None:
+        shown = [s.index for s in self._snaps]
+        if self.detail_index not in shown or len(shown) < 2:
+            return
+        self.detail_index = shown[(shown.index(self.detail_index) + delta) % len(shown)]
+        self.detail = None
+        self.feed_detail()
+        self.request_poll(force=True)
+
+    def feed_detail(self) -> None:
+        """Push the current data into the detail view, if it is open."""
+        screen = self.screen
+        if not isinstance(screen, GpuDetailScreen) or self.detail_index is None:
+            return
+        shown = [s.index for s in self._snaps]
+        if self.detail_index not in shown or self.detail_index not in self.cards:
+            screen.dismiss(None)  # GPU fell off the bus or got filtered out
+            return
+        snap = self._snaps[shown.index(self.detail_index)]
+        detail = self.detail if self.detail is not None and self.detail.index == snap.index else None
+        hint = " esc close "
+        if len(shown) > 1:
+            hint = f" GPU {shown.index(snap.index) + 1} of {len(shown)} · ←/→ switch ·{hint}"
+        view = screen.query(DetailView)
+        if view:  # absent while the screen is still mounting or already closing
+            view.first().show(snap, detail, self.cards[snap.index].hist, hint)
 
     def _say(self, message: str, severity: str = "information", timeout: float | None = None) -> None:
         """notify() with markup off: messages can contain process names or driver errors."""
@@ -289,4 +416,12 @@ class NvPulse(App):
             self._say(f"could not signal PID {target.pid}: {exc.strerror}", "error")
 
     def on_unmount(self) -> None:
-        self.backend.close()
+        self._handle_exit_signals(False)
+        # Wait for a poll in flight. If the driver is hung, leave it open: the
+        # process is exiting anyway and the OS cleans up.
+        if self._backend_lock.acquire(timeout=2.0):
+            try:
+                self._closed = True
+                self.backend.close()
+            finally:
+                self._backend_lock.release()

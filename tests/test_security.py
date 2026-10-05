@@ -10,12 +10,13 @@ import time
 
 import pytest
 
-from nvpulse import cli, killer
+from nvpulse import cli, dump, killer
 from nvpulse.backend.mock import MockBackend
 from nvpulse.backend.models import ProcessInfo
 from nvpulse.procinfo import enrich
 from nvpulse.sanitize import clean, redact
 from nvpulse.ui.app import NvPulse
+from nvpulse.ui.detail import DetailView, GpuDetailScreen
 from nvpulse.ui.modals import ConfirmKill
 from nvpulse.ui.widgets import ProcessTable
 
@@ -206,3 +207,76 @@ def test_clamp_bounds():
 def test_parse_indices_rejects_negative():
     with pytest.raises(SystemExit):
         cli.parse_indices("-1")
+
+
+# ------------------------------------------------------------- v0.2 surfaces
+class HostileDriver(HostileMock):
+    """A backend whose *driver* strings are hostile too (remote or buggy NVML)."""
+
+    def poll(self, indices=None):
+        snaps = super().poll(indices)
+        snaps[0].name = snaps[0].uuid = snaps[0].bus_id = HOSTILE
+        snaps[0].clock_reasons = 0x40
+        return snaps
+
+    def detail(self, index):
+        d = super().detail(index)
+        d.vbios = HOSTILE
+        return d
+
+
+def test_dump_is_ascii_and_leaves_out_identifying_data():
+    out = dump.dumps(HostileDriver(1, seed=1))
+    assert out.isascii() and not any(ord(c) < 0x20 and c != "\n" for c in out)  # no raw control characters
+    for private in ("evil", "4242", "cmdline", "user", "pid", "hostname", "PWNED\x1b"):
+        assert private not in out
+    assert '"uuid": "GPU-<redacted>"' in out
+
+
+async def test_detail_view_survives_hostile_driver_strings():
+    app = NvPulse(HostileDriver(1, seed=1), interval=0.2)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause(0.4)
+        await pilot.press("enter")
+        await pilot.pause(0.5)
+        assert isinstance(app.screen, GpuDetailScreen)
+        view = app.screen.query_one(DetailView)
+        assert view.detail is not None
+        for widget in (view, app.query_one("#gpu-0")):
+            for y in range(widget.outer_size.height):
+                text = "".join(seg.text for seg in widget.render_lines(widget.region.at_offset((0, y)))[0])
+                assert "\x1b" not in text and "\x9b" not in text and "\u202e" not in text
+        assert "THERMAL" in str(view.border_title)
+        assert app.is_running
+
+
+@pytest.mark.parametrize("spec", ["GPU-\x1b[2J", "0;rm", "GPU-zzzzzzzz", "../../x", "0," + "GPU-" + "a" * 80, "²"])
+def test_gpu_selectors_reject_anything_unexpected(spec):
+    with pytest.raises(SystemExit):
+        cli.parse_indices(spec)
+
+
+def test_gpu_selector_count_is_capped():
+    with pytest.raises(SystemExit):
+        cli.parse_indices(",".join(str(i) for i in range(cli.MAX_INDICES + 1)))
+
+
+@pytest.mark.parametrize("name", ["[/]", "x [@click=app.quit", "[bold", "a\\[/]", HOSTILE])
+async def test_gpu_name_is_never_parsed_as_markup(name):
+    """A driver-supplied name next to the throttle badges once raised MarkupError."""
+
+    class Named(MockBackend):
+        def poll(self, indices=None):
+            snaps = super().poll(indices)
+            snaps[0].name, snaps[0].clock_reasons = name, 0x40
+            return snaps
+
+    app = NvPulse(Named(1, seed=1), interval=0.2)
+    async with app.run_test(size=(140, 36)) as pilot:
+        await pilot.pause(0.4)
+        card = app.query_one("#gpu-0")
+        top = "".join(seg.text for seg in card.render_lines(card.region.at_offset((0, 0)))[0])
+        assert "THERMAL" in top and "\x1b" not in top
+        if name.isprintable():
+            assert name in top  # shown literally
+        assert app.is_running

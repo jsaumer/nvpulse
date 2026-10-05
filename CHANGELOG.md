@@ -6,6 +6,48 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **GPU detail view.** Press `Enter` (for the selected process's GPU) or click a
+  card: tall history graphs for utilisation, memory, power and temperature, plus
+  every clock, the active clock-limit reasons, per-fan speed, RPM and target,
+  thermal thresholds, energy used, PCIe link and TX/RX throughput, ECC counters
+  and VBIOS version. `←` / `→` switch GPU. The extra readings are only polled
+  while the view is open.
+- **Throttle badges** on the card border for thermal slowdown, hardware slowdown
+  and power brake. Idle and the software power cap are not badged: a healthy
+  card reports both routinely.
+- **PCIe link warning** on the card border when the card runs on fewer lanes
+  than it supports, or in a slot limited to an older PCIe generation.
+- **`g` hides graphics-only processes** (`--hide-graphics` to start that way), so
+  a desktop session's dozens of small clients don't bury the compute jobs.
+- **`-i` accepts GPU UUIDs and PCI bus IDs** as well as indices, like `nvidia-smi`.
+- **`nvpulse --dump`** prints one snapshot as JSON for bug reports. It contains
+  no hostname, GPU UUID, PIDs, user names or command lines.
+- The running version is shown in the header, next to the name, and on the help screen.
+- A release workflow that publishes to PyPI through trusted publishing when a
+  GitHub release is published.
+
+### Changed
+- SIGTERM and SIGHUP (a dropped SSH session) now exit cleanly: the terminal is
+  restored and the driver connection closed. Previously the process was killed
+  mid-frame, leaving the terminal in the alternate screen with mouse reporting on.
+- The first poll runs in the worker thread like every later one, so a slow
+  driver can't delay the first frame.
+- The selected process row keeps each cell's own colours; the VRAM gauge on it
+  is no longer washed out.
+- Sparklines show a dotted lead-in until the history fills.
+- The help screen's columns line up, and it lists the new keys.
+- Mock GPUs no longer start with VRAM almost full, and have UUID-shaped IDs.
+- The demo GIF is a fifth of its previous size.
+
+### Fixed
+- A crash on exit when the driver was shut down while a poll was still inside it.
+- An error on exit when a poll finished after the screen was torn down.
+
+### Security
+- GPU names are drawn as plain text in card titles instead of escaped markup,
+  which a name cut off mid-tag could break once badges follow it.
+
 ## [0.1.1] - 2026-10-04
 
 ### Security

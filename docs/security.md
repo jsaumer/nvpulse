@@ -36,9 +36,11 @@ a process named `[/]` used to crash the app when its kill dialog opened.
   `\uNNNN` escape, and caps the length (command line 1024, name 64, user 32).
   Untrusted data can't inject escapes, and huge argv strings can't stall rendering.
 - NVML strings (GPU name, bus ID) and the hostname are cleaned the same way.
-- Untrusted text is only rendered as `rich.text.Text` or with `markup=False`. Border
-  titles, which Textual always parses as markup, are escaped. Notifications go
-  through `App._say()`, which disables markup.
+- Untrusted text is only rendered as `rich.text.Text` or with `markup=False`.
+  Border titles are set as `Text` as well: Textual parses a *string* title as
+  markup, and its `escape()` only covers complete `[tags]`, so a name cut off
+  mid-tag could swallow markup that follows it. Notifications go through
+  `App._say()`, which disables markup.
 
 ### 2. Secrets in command lines: `sanitize.redact()`
 
@@ -101,7 +103,9 @@ again would loop forever.
 
 - `--interval` is clamped to 0.1–3600 s, `--fps` to 1–60, and `--mock` to 1–64.
   NaN and infinity are rejected.
-- `-i` accepts only non-negative integers, at most 64 of them.
+- `-i` accepts at most 64 selectors, each a non-negative integer, a `GPU-…` UUID
+  or a PCI bus ID, matched by anchored regular expressions. Anything else is
+  rejected before a backend is created.
 - History buffers are fixed-size deques. The PID info cache is pruned every poll.
 - The `/proc/<pid>/cmdline` fallback reads at most 64 KiB.
 
@@ -110,10 +114,26 @@ again would loop forever.
 Textual's command palette is disabled (`ENABLE_COMMAND_PALETTE = False`). nvpulse
 doesn't use it, and it adds actions such as saving screenshots to the current directory.
 
-### 7. Supply chain and CI
+### 7. `--dump` output
 
-- The workflow runs with `permissions: contents: read`, and checkouts use
+**Risk.** A diagnostic dump gets pasted into public issues. Hostnames, GPU
+UUIDs, user names and command lines identify people and machines, and command
+lines can hold secrets that the redaction heuristic misses.
+
+**Decision.** `--dump` writes one JSON document to stdout and nowhere else: no
+file, no network. It omits the hostname, replaces the GPU UUID with a
+placeholder, and reports processes as type and numbers only (no PID, name, user
+or command line), so it never reads `/proc` at all. Output is ASCII-only JSON,
+so no driver string can carry a control character to the terminal.
+
+### 8. Supply chain and CI
+
+- The CI workflow runs with `permissions: contents: read`, and checkouts use
   `persist-credentials: false`.
+- The release workflow only runs when a GitHub release is published. It uploads
+  to PyPI through trusted publishing (OIDC), so no API token exists to steal.
+  `id-token: write` is granted to the publish job alone, which runs no code
+  from the repository: it downloads the artifact the build job made.
 - Every third-party action is pinned to a full commit SHA. Dependabot updates
   both actions and Python dependencies weekly.
 - A `pip-audit --strict` job fails CI on known-vulnerable dependencies.
@@ -129,6 +149,9 @@ doesn't use it, and it adds actions such as saving screenshots to the current di
 - **Screen-sharing:** keep redaction on (the default), and remember it's a heuristic.
 - **Don't set `TEXTUAL=devtools` on shared machines.** It makes the app stream
   its screen to a local devtools socket that another user could be listening on.
+
+- **Before sharing a `--dump`,** skim it. It is built to be shareable, but GPU
+  model, driver version and kernel version are in there by design.
 
 ## Known limitations
 

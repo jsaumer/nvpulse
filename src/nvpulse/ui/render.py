@@ -106,6 +106,24 @@ def fmt_bytes(b: int | float | None) -> str:
     return "n/a"  # pragma: no cover
 
 
+def fmt_rate(kb_per_s: float | None) -> str:
+    """NVML reports PCIe throughput in KB/s."""
+    if kb_per_s is None:
+        return "n/a"
+    if kb_per_s < 1000:
+        return f"{kb_per_s:.0f} KB/s"
+    if kb_per_s < 1_000_000:
+        return f"{kb_per_s / 1000:.1f} MB/s"
+    return f"{kb_per_s / 1_000_000:.2f} GB/s"
+
+
+def fmt_energy(joules: float | None) -> str:
+    if joules is None:
+        return "n/a"
+    kwh = joules / 3.6e6
+    return f"{kwh:.2f} kWh" if kwh >= 0.1 else f"{joules / 3600:.1f} Wh"
+
+
 # --------------------------------------------------------------------- bars
 def gauge(width: int, pct: float | None, stops: Stops, *, track: str = TRACK, solid: bool = False) -> Text:
     """Horizontal bar with per-cell gradient and 1/8-cell precision.
@@ -182,7 +200,8 @@ def sparkline(values: Iterable[float | None], width: int, stops: Stops, vmax: fl
     if width <= 0:
         return text
     vals = list(values)[-width:]
-    text.append(" " * (width - len(vals)))
+    # dotted lead-in until the history fills, so the graph area doesn't look broken
+    text.append("·" * (width - len(vals)), Style(color=TRACK))
     for v in vals:
         if v is None:
             text.append("·", Style(color=DIM))
@@ -195,6 +214,42 @@ def sparkline(values: Iterable[float | None], width: int, stops: Stops, vmax: fl
 
 # ------------------------------------------------------------- braille fan
 _BRAILLE_BITS = ((0x01, 0x08), (0x02, 0x10), (0x04, 0x20), (0x40, 0x80))  # [row][col]
+
+
+def history_graph(
+    values: Iterable[float | None], width: int, height: int, stops: Stops, vmax: float = 100.0
+) -> list[Text]:
+    """Multi-row area graph on a braille canvas, newest value on the right.
+
+    Each cell holds two samples across and four levels down, so a ``width`` × ``height``
+    graph shows ``2 * width`` samples at ``4 * height`` levels. Rows are coloured by
+    their position on the gradient, so tall peaks reach the hot end.
+    """
+    if width <= 0 or height <= 0:
+        return []
+    bits = [[0] * width for _ in range(height)]
+    vals = list(values)[-width * 2 :]
+    offset = width * 2 - len(vals)
+    levels = height * 4
+    for i, v in enumerate(vals):
+        if v is None:
+            continue
+        f = max(0.0, min(1.0, v / vmax)) if vmax else 0.0
+        cx, bx = divmod(offset + i, 2)
+        for y in range(max(1, round(f * levels))):  # at least the baseline dot
+            cy, by = divmod(levels - 1 - y, 4)
+            bits[cy][cx] |= _BRAILLE_BITS[by][bx]
+    lead = offset // 2  # cells with no history yet: a faint baseline, as in sparkline()
+    lines = []
+    for cy in range(height):
+        line = Text(no_wrap=True, overflow="crop")
+        cells = "".join(chr(0x2800 + b) if b else " " for b in bits[cy])
+        if cy == height - 1 and lead:
+            line.append("⣀" * lead, Style(color=TRACK))
+            cells = cells[lead:]
+        line.append(cells, Style(color=gradient(stops, (height - cy - 0.5) / height)))
+        lines.append(line)
+    return lines
 
 
 @lru_cache(maxsize=32)

@@ -8,16 +8,52 @@ from collections import deque
 from rich.console import Group
 from rich.style import Style
 from rich.text import Text
-from textual.markup import escape as escape_markup
+from textual.binding import Binding
+from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable
 
+from .. import __version__
 from ..backend.models import GpuSnapshot, ProcessInfo, SystemInfo
 from ..sanitize import clean
 from . import render as R
 
 HISTORY = 240
 OMEGA_MAX = 7.0  # rad/s at 100 % fan; keeps per-frame rotation under the strobe limit
+WARN = "#d29922"
+ALERT = "#f85149"
+
+
+def card_title(s: GpuSnapshot) -> Text:
+    """Border title: the GPU name, then a badge per active throttle.
+
+    Returned as ``Text`` so Textual never parses the driver-supplied name as markup.
+    (Its ``escape()`` only covers complete ``[tags]``; a name cut off mid-tag would
+    swallow the badge markup that follows.)
+    """
+    title = Text(f" GPU {s.index} · {clean(s.name.replace('NVIDIA ', ''), 48)} ")
+    for badge in s.throttle_badges:
+        title.append(f" {badge} ", Style(color="#0d1117", bgcolor=ALERT, bold=True))
+        title.append(" ")
+    return title
+
+
+def card_subtitle(s: GpuSnapshot) -> Text:
+    """Border subtitle: bus ID, P-state and PCIe link, with a downgrade warning."""
+    bits = [clean(s.bus_id[-12:], 32) if s.bus_id else ""]
+    if s.pstate is not None:
+        bits.append(f"P{s.pstate}")
+    out = Text(" " + " · ".join(b for b in bits if b))
+    if s.pcie_gen and s.pcie_width:
+        if out.plain.strip():
+            out.append(" · ")
+        link = f"PCIe {s.pcie_gen}.0 x{s.pcie_width}"
+        if s.pcie_downgrade:
+            out.append(f"{link} ▼ card supports {s.pcie_downgrade}", Style(color=WARN, bold=True))
+        else:
+            out.append(link)
+    out.append(" ")
+    return out
 
 
 # ====================================================================== header
@@ -51,6 +87,7 @@ class HeaderBar(Widget):
         sep = (" │ ", Style(color="#30363d"))
         t = Text(no_wrap=True, overflow="ellipsis")
         t.append(" ∿ nvpulse ", Style(color="#0d1117", bgcolor=R.ACCENT, bold=True))
+        t.append(f" v{__version__}", Style(color=R.LABEL))
         t.append("  ")
         t.append("Driver ", Style(color=R.LABEL))
         t.append(self.info.driver_version, Style(color=R.TEXT, bold=True))
@@ -112,6 +149,13 @@ class GpuCard(Widget):
     GpuCard.-compact { height: 7; }
     """
 
+    class Open(Message):
+        """The card was clicked: show this GPU's detail view."""
+
+        def __init__(self, index: int) -> None:
+            super().__init__()
+            self.index = index
+
     def __init__(self, index: int, animate: bool = True, **kw) -> None:
         super().__init__(**kw)
         self.index = index
@@ -141,17 +185,15 @@ class GpuCard(Widget):
         if not self.animate_enabled:
             self.tw.snap()
 
-        # border titles are parsed as markup: escape driver-supplied strings
-        self.border_title = escape_markup(f" GPU {s.index} · {clean(s.name.replace('NVIDIA ', ''), 48)} ")
-        bits = [s.bus_id[-12:] if s.bus_id else ""]
-        if s.pstate is not None:
-            bits.append(f"P{s.pstate}")
-        if s.pcie_gen and s.pcie_width:
-            bits.append(f"PCIe {s.pcie_gen}.0 x{s.pcie_width}")
-        self.border_subtitle = escape_markup(clean(" " + " · ".join(b for b in bits if b) + " ", 80))
+        # str border titles are parsed as markup; these are Text, which is not
+        self.border_title = card_title(s)
+        self.border_subtitle = card_subtitle(s)
         load = (s.util_gpu or 0) / 100
         self.styles.border = ("round", R.mix("#30363d", R.gradient(R.UTIL_GRAD, load), 0.25 + 0.6 * load))
         self.refresh()
+
+    def on_click(self) -> None:
+        self.post_message(self.Open(self.index))
 
     def set_compact(self, compact: bool) -> None:
         self.compact = compact
@@ -356,9 +398,19 @@ class ProcessTable(DataTable):
     ProcessTable > .datatable--cursor { background: #1f6feb 40%; }
     """
 
+    # DataTable binds enter itself (hidden); rebind it so the footer shows what it does here
+    BINDINGS = [Binding("enter", "select_cursor", "Detail")]
+
+    class OpenDetail(Message):
+        """Enter was pressed in the table."""
+
     def __init__(self, **kw) -> None:
-        super().__init__(cursor_type="row", zebra_stripes=True, **kw)
+        # "renderable" keeps each cell's own colours on the cursor row; the default
+        # repaints everything in the cursor foreground and whites out the VRAM gauge
+        super().__init__(cursor_type="row", zebra_stripes=True, cursor_foreground_priority="renderable", **kw)
         self.sort_key = "vram"
+        self.hide_graphics = False
+        self.hidden = 0  # rows left out by hide_graphics
         self.gpu_totals: dict[int, int] = {}
         self._shown: dict[str, tuple[Text, ...]] = {}  # row key -> cells currently in the table
 
@@ -370,6 +422,9 @@ class ProcessTable(DataTable):
         self.add_column("SM%", key="sm", width=4)
         self.add_column("VRAM", key="vram", width=21)
         self.add_column("COMMAND", key="cmd")
+
+    def action_select_cursor(self) -> None:
+        self.post_message(self.OpenDetail())
 
     def cycle_sort(self) -> str:
         self.sort_key = SORTS[(SORTS.index(self.sort_key) + 1) % len(SORTS)]
@@ -405,7 +460,10 @@ class ProcessTable(DataTable):
 
     def update_processes(self, snaps: list[GpuSnapshot]) -> None:
         self.gpu_totals = {s.index: s.mem_total or 0 for s in snaps}
-        procs = self._sorted([p for s in snaps for p in s.processes])
+        procs = [p for s in snaps for p in s.processes]
+        shown = [p for p in procs if p.kind != "G"] if self.hide_graphics else procs
+        self.hidden = len(procs) - len(shown)
+        procs = self._sorted(shown)
         rows = {f"{p.gpu_index}:{p.pid}": self._cells(p) for p in procs}
 
         # Same processes in the same order (the usual case): touch only the cells that

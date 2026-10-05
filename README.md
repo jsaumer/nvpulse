@@ -12,8 +12,9 @@ It also works as a drop-in front end for `nvidia-smi`. Pass it a flag it doesn't
 own (`-q`, `-L`, `--query-gpu=…`) or pipe its output, and it hands off to the real
 `nvidia-smi` unchanged, so scripts and muscle memory keep working.
 
-> **Status:** alpha (v0.1). Developed against the mock backend; feedback from real
-> hardware is very welcome.
+> **Status:** alpha (v0.2). Validated on one consumer desktop card so far. Reports
+> from laptops, multi-GPU boxes, datacenter cards and WSL are very welcome:
+> `nvpulse --dump` prints a snapshot that is safe to paste into an issue.
 
 ## Features
 
@@ -26,7 +27,12 @@ own (`-q`, `-L`, `--query-gpu=…`) or pipe its output, and it hands off to the 
   threshold marked and a pulsing glow within 10 °C of it.
 - **Sparklines** of recent utilisation, memory, power and temperature on wide cards.
 - **Process table**: GPU, PID, user, type (C/G), SM %, VRAM bar and command line.
-  Sortable, with confirmed SIGTERM / SIGKILL.
+  Sortable, with confirmed SIGTERM / SIGKILL, and one key to hide the dozens of
+  small graphics clients a desktop session creates.
+- **GPU detail view** (`Enter`): tall history graphs and every reading the card
+  offers, from per-fan RPM and thermal thresholds to PCIe throughput and ECC counters.
+- **Warnings where they matter**: a badge on the card when it is thermally or
+  hardware throttled, and a note when it sits in a slot that limits its PCIe link.
 - **Adaptive layout**: a large card for a single GPU, a responsive grid for many.
 - **nvidia-smi passthrough** for anything non-interactive.
 - **Mock mode** (`--mock N`) to try it with no GPU at all.
@@ -37,6 +43,10 @@ own (`-q`, `-L`, `--query-gpu=…`) or pipe its output, and it hands off to the 
 | Single GPU | Multi-GPU |
 |---|---|
 | ![single GPU](docs/images/single-gpu.svg) | ![four GPUs](docs/images/multi-gpu.svg) |
+
+| GPU detail view |
+|---|
+| ![GPU detail view](docs/images/detail.svg) |
 
 ## Install
 
@@ -59,7 +69,7 @@ This installs two commands: `nvpulse`, and `nvidia-smi+` as an alias.
 
 ```bash
 nvpulse                    # dashboard
-nvpulse -i 0,2             # only GPUs 0 and 2
+nvpulse -i 0,2             # only GPUs 0 and 2 (UUIDs and PCI bus IDs work too)
 nvpulse -n 0.5             # poll every 0.5 s (default 1 s)
 nvpulse --compact          # force compact cards (--expanded for the large layout)
 nvpulse --no-anim          # static, low-CPU mode
@@ -67,6 +77,8 @@ nvpulse --fps 30           # smoother animation (default 20)
 nvpulse --mock 4           # four simulated GPUs, no hardware needed
 nvpulse --read-only        # disable k/K (good for shared screens or sudo)
 nvpulse --no-redact        # show command lines verbatim (secrets are masked by default)
+nvpulse --hide-graphics    # start with graphics-only processes hidden
+nvpulse --dump             # one snapshot as JSON, for bug reports (no names or IDs)
 ```
 
 ### Passthrough to nvidia-smi
@@ -97,6 +109,8 @@ alias nvidia-smi='nvpulse'
 | `c` | Toggle compact / expanded cards |
 | `a` | Toggle animation |
 | `s` | Cycle process sort: VRAM → SM % → PID → GPU |
+| `g` | Hide or show graphics-only processes |
+| `Enter` | GPU detail view for the selected process's GPU (or click a card); `←` `→` switch GPU, `Esc` closes |
 | `k` / `K` | SIGTERM / SIGKILL the selected process (asks first) |
 | `↑` `↓` | Move in the process table |
 | `?` | Help |

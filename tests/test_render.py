@@ -63,3 +63,28 @@ def test_formatting():
     assert R.fmt_mem_pair(12 * 1024**3, 24 * 1024**3) == "12.0/24G"
     assert R.fmt_mem_pair(None, 1) == "n/a"
     assert R.fmt_bytes(915 * 1024**2) == "915 MiB"
+
+
+def test_history_graph_shape_and_levels():
+    lines = R.history_graph([0, 50, 100, None], 6, 3, R.UTIL_GRAD)
+    assert len(lines) == 3 and all(line.cell_len == 6 for line in lines)
+    top, _mid, bottom = (line.plain for line in lines)
+    assert top.strip() == "⢸" or top.strip() == "⡇"  # only the 100 % sample reaches the top row
+    assert bottom.startswith("⣀⣀⣀⣀")  # no history yet: faint baseline
+    assert R.history_graph([], 4, 2, R.UTIL_GRAD)[1].plain == "⣀⣀⣀⣀"
+    assert R.history_graph([1], 0, 3, R.UTIL_GRAD) == []
+    # newest sample sits in the right-hand column; a zero still draws the baseline dot
+    assert R.history_graph([0], 2, 1, R.UTIL_GRAD)[0].plain == "⣀⢀"
+
+
+def test_sparkline_lead_in_is_dotted():
+    assert R.sparkline([100], 4, R.UTIL_GRAD).plain == "···█"
+
+
+def test_rate_and_energy_formatting():
+    assert R.fmt_rate(None) == "n/a"
+    assert R.fmt_rate(512) == "512 KB/s"
+    assert R.fmt_rate(7031) == "7.0 MB/s"
+    assert R.fmt_rate(2_500_000) == "2.50 GB/s"
+    assert R.fmt_energy(1_775_044) == "0.49 kWh"
+    assert R.fmt_energy(7200) == "2.0 Wh"

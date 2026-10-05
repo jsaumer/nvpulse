@@ -72,7 +72,40 @@ terminal), as a share of one core:
 - **`SM` clock jumps around at idle.** The driver drops the core clock between
   bursts of work, so two readings a moment apart can differ a lot.
 - The process table lists every graphics client (`G`), most of them using a few
-  MiB. Sort with `s` to bring the busy ones to the top.
+  MiB. Press `g` to hide them, or start with `--hide-graphics`.
+- **PCIe shows Gen 1 or 2 on a Gen 4 card.** The driver drops the link speed at
+  idle to save power and raises it under load. `nvidia-smi` shows the same.
+
+### A red badge on a card (THERMAL, HW SLOWDOWN, POWER BRAKE)
+
+The driver is holding the GPU's clocks down. THERMAL means it is too hot: check
+airflow, dust and the fan curve. HW SLOWDOWN and POWER BRAKE usually point at
+power delivery (PSU, cables) or an external power limit. The detail view
+(`Enter`) lists every active reason on its "Clock cap" row.
+
+You won't see a badge for "idle" or "software power cap". Both are routine: the
+card used for testing reports the software power cap for hours while idling at
+11 W. They still appear in the detail view, as they do in `nvidia-smi -q`.
+
+### "PCIe … ▼ card supports …" on a card
+
+The link has fewer lanes than the card can use, or the slot only offers an older
+PCIe generation. Common causes: a slot that is x16 in size but wired x8 or x4,
+lanes shared with an M.2 slot, a riser cable, or a BIOS setting. It only costs
+performance when a workload moves a lot of data to and from the card.
+
+### The detail view shows `…` for some values
+
+Those readings are fetched only while the view is open and arrive with the next
+poll. If they stay `…`, polling is failing: look for a "poll failed" notice.
+"n/a" means the card or driver doesn't report that value (ECC counters on
+consumer cards, for example).
+
+### Reporting a hardware quirk
+
+Attach the output of `nvpulse --dump` to the issue. It holds the driver and
+library versions and every reading nvpulse takes, and leaves out the hostname,
+GPU UUID, PIDs, user names and command lines.
 
 ### `nvpulse -q` (or another flag) didn't do what I expected
 

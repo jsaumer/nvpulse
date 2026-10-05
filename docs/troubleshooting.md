@@ -31,7 +31,8 @@ cards. Run `nvidia-smi -q -d FAN` to see what the driver exposes.
 
 Your terminal font is missing **braille** (U+2800–U+28FF) or block-element glyphs.
 Most Nerd Fonts, JetBrains Mono, Cascadia Code, Fira Code and DejaVu Sans Mono
-include them. Over SSH, it's the *local* terminal's font that matters.
+include them. The font that matters is the one in the terminal emulator you
+are looking at.
 
 ### Colours look wrong or washed out
 
@@ -158,7 +159,7 @@ own Linux copy in `/usr/lib/wsl/lib` instead. If it is somewhere else, point
 `--theme high-contrast` brightens the dim parts. Naming a colour theme
 overrides `NO_COLOR`.
 
-### `--once` prints `?` instead of bars over SSH
+### `--once` prints `?` instead of bars
 
 The terminal's locale can't encode the block characters (`LANG=C`, for
 example). nvpulse replaces what it can't print rather than failing. Use a UTF-8

@@ -1,9 +1,8 @@
 # Security model
 
-nvpulse is a local, read-mostly terminal app. It doesn't listen on the network,
-connect to other machines, store data or need privileges. Local only is a
-standing decision, not an accident of scope: a remote or multi-host mode was
-considered and rejected as too much of a security risk. Still, it displays data other people control, it
+nvpulse is a local, read-mostly terminal app. It shows the machine it runs on. It
+doesn't listen on the network, connect to anything, store data or need
+privileges. Local only is a standing design decision, not an accident of scope. Still, it displays data other people control, it
 can send signals, and it can exec another binary, so those three areas are hardened.
 
 ## Threat model
@@ -143,7 +142,7 @@ weaken both, or keep the dashboard from starting.
 
 **Decision.** The file is only ever read; nvpulse still writes nothing. It must
 be a regular file owned by the current user or root, and neither group- nor
-world-writable (the rule `ssh` applies to its own config). The check runs on
+world-writable (a group that can write it counts as someone else). The check runs on
 the open file descriptor, so a symlink is judged by its target and the file
 can't be swapped between check and read. A file that fails is not read at all:
 named explicitly, that is an error; found at the default location (for example

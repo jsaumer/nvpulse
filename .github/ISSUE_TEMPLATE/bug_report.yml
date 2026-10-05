@@ -33,7 +33,7 @@ body:
     id: terminal
     attributes:
       label: Terminal, font and OS
-      placeholder: e.g. kitty 0.36 / JetBrains Mono / Ubuntu 24.04, over SSH inside tmux
+      placeholder: e.g. kitty 0.36 / JetBrains Mono / Ubuntu 24.04, inside tmux
   - type: textarea
     id: traceback
     attributes:

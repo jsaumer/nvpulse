@@ -6,6 +6,10 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- `--help` and the documentation describe nvpulse as what it is: a local tool
+  that shows the machine it runs on and never connects to another one.
+
 ## [0.3.0] - 2026-10-05
 
 ### Added
@@ -14,7 +18,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   hidden columns, plus alert limits and an energy price. Flags win over the file.
   See `docs/configuration.md`.
 - **`nvpulse --once`** prints one snapshot as plain lines and exits. It works in
-  pipes and over SSH, and drops colour when it isn't writing to a terminal.
+  pipes, and drops colour when it isn't writing to a terminal.
 - **UNIT column**: the Docker, Podman, LXC or Kubernetes container, or the
   systemd service, that owns each process, read from `/proc/<pid>/cgroup`. It
   appears only when some process has one. `s` can sort (group) by it.
@@ -74,7 +78,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   GitHub release is published.
 
 ### Changed
-- SIGTERM and SIGHUP (a dropped SSH session) now exit cleanly: the terminal is
+- SIGTERM and SIGHUP (a closed terminal) now exit cleanly: the terminal is
   restored and the driver connection closed. Previously the process was killed
   mid-frame, leaving the terminal in the alternate screen with mouse reporting on.
 - The first poll runs in the worker thread like every later one, so a slow

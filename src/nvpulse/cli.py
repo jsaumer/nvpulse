@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--config", metavar="FILE", help="settings file (default ~/.config/nvpulse/config.toml)")
     c.add_argument("--no-config", action="store_true", help="ignore the settings file")
     p.add_argument("--classic", action="store_true", help="run the real nvidia-smi instead")
-    p.add_argument("--once", action="store_true", help="print one snapshot and exit (works in pipes and over SSH)")
+    p.add_argument("--once", action="store_true", help="print one snapshot and exit (works in pipes)")
     p.add_argument(
         "--dump", action="store_true", help="print one snapshot as JSON and exit (no names or IDs; for bug reports)"
     )

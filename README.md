@@ -37,8 +37,8 @@ own (`-q`, `-L`, `--query-gpu=…`) or pipe its output, and it hands off to the 
 - **Warnings where they matter**: a badge on the card when it is thermally or
   hardware throttled, a note when it sits in a slot that limits its PCIe link, and
   optional alerts when temperature or VRAM crosses a limit you set.
-- **`nvpulse --once`**: the same numbers as one plain snapshot, for SSH one-liners
-  and login banners.
+- **`nvpulse --once`**: the same numbers as one plain snapshot, for scripts and
+  login banners.
 - **Energy and cost**: watt-hours drawn since you started watching, priced at your
   rate if you give one.
 - **Adaptive layout**: a large card for a single GPU, a responsive grid for many.
@@ -92,7 +92,7 @@ nvpulse --read-only        # disable k/K (good for shared screens or sudo)
 nvpulse --no-redact        # show command lines verbatim (secrets are masked by default)
 nvpulse --hide-graphics    # start with graphics-only processes hidden
 nvpulse --theme mono       # or high-contrast; NO_COLOR=1 also selects mono
-nvpulse --once             # print one snapshot and exit (fine in pipes and over SSH)
+nvpulse --once             # print one snapshot and exit (fine in pipes)
 nvpulse --dump             # one snapshot as JSON, for bug reports (no names or IDs)
 ```
 

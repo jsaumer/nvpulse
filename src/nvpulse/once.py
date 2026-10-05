@@ -1,6 +1,6 @@
 """``nvpulse --once``: print one snapshot and exit.
 
-For SSH one-liners, login banners and quick looks: the same numbers as the
+For scripts, login banners and quick looks: the same numbers as the
 dashboard, as plain lines. Colour is used on a terminal and dropped when piped.
 Process text goes through the same cleaning and redaction as the dashboard.
 """
@@ -160,5 +160,5 @@ def print_once(backend: Backend, indices: list[int] | None = None, **options) ->
     if out is None:  # fd 1 is closed
         return
     if hasattr(out, "reconfigure"):
-        out.reconfigure(errors="replace")  # a C / latin-1 locale over SSH can't encode █ or ·
+        out.reconfigure(errors="replace")  # a C / latin-1 locale can't encode █ or ·
     out.write(capture.get())

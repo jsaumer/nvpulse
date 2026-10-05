@@ -76,12 +76,8 @@ In this order:
 - [ ] MIG instance awareness (needs datacenter hardware or a recording)
 
 ## Not planned
-- **Remote or multi-host mode.** nvpulse is local only: it shows the machine it
-  runs on and never connects to another one. Reaching into other hosts over SSH
-  was considered and rejected as too much of a security risk. To look at
-  another machine, run nvpulse there (`ssh host nvpulse --once` works today,
-  with your own SSH doing the connecting).
-- **Network backends** (Prometheus, DCGM): ruled out by the same decision.
+- **Anything that uses the network.** nvpulse is local only: it shows the
+  machine it runs on, and never connects to or listens for anything else.
 - **Process tree view.** Parent / child rows rarely mean much for GPU processes,
   and totals per user and per unit answer the useful part.
 

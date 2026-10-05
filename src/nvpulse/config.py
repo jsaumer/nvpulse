@@ -134,7 +134,7 @@ def parse(data: dict[str, Any]) -> Config:
 def _trusted(st: os.stat_result) -> bool:
     """A regular file that is ours (or root's) and that nobody else can write.
 
-    Group-writable counts as "somebody else", as it does for ``~/.ssh/config``.
+    Group-writable counts as "somebody else": a group is other people.
     """
     uid = os.geteuid() if hasattr(os, "geteuid") else st.st_uid
     writable_by_others = st.st_mode & (stat.S_IWGRP | stat.S_IWOTH)

@@ -211,7 +211,7 @@ def test_parse_indices_rejects_negative():
 
 # ------------------------------------------------------------- v0.2 surfaces
 class HostileDriver(HostileMock):
-    """A backend whose *driver* strings are hostile too (remote or buggy NVML)."""
+    """A backend whose *driver* strings are hostile too (a buggy or compromised NVML)."""
 
     def poll(self, indices=None):
         snaps = super().poll(indices)

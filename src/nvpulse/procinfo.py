@@ -116,7 +116,7 @@ def enrich(processes: list[ProcessInfo], *, redact_secrets: bool = True) -> None
             info = _lookup(proc.pid)
             if info:
                 proc.started, proc.name, proc.user, proc.cmdline, proc.unit = info
-        # Always re-clean: backends (mock, future remote ones) may supply raw text.
+        # Always re-clean: a backend (the mock, for one) may supply raw text.
         proc.name = clean(proc.name, MAX_NAME)
         proc.user = clean(proc.user, MAX_USER)
         proc.cmdline = clean(proc.cmdline, MAX_CMDLINE)

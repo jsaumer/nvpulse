@@ -1,0 +1,41 @@
+name: Bug report
+description: Something looks or behaves wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead. Screenshots help a lot for visual issues.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `nvpulse ...`
+        2. Press ...
+  - type: input
+    id: version
+    attributes:
+      label: nvpulse version
+      placeholder: output of `nvpulse --version`
+    validations:
+      required: true
+  - type: textarea
+    id: gpus
+    attributes:
+      label: GPUs and driver
+      description: Output of `nvidia-smi -L` and the driver version from `nvidia-smi`.
+      render: text
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal, font and OS
+      placeholder: e.g. kitty 0.36 / JetBrains Mono / Ubuntu 24.04, over SSH inside tmux
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback / logs
+      render: text

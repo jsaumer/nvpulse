@@ -1,0 +1,87 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nvpulse"
+dynamic = ["version"]
+description = "Animated, btop-style terminal dashboard for NVIDIA GPUs — a drop-in front end for nvidia-smi"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Jayson" }]
+keywords = ["gpu", "nvidia", "nvml", "monitoring", "tui", "terminal", "nvidia-smi", "textual"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Hardware",
+    "Topic :: System :: Monitoring",
+    "Typing :: Typed",
+]
+dependencies = [
+    "textual>=0.80",
+    "rich>=13.7",
+    "nvidia-ml-py>=12.535",
+    "psutil>=5.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+nvpulse = "nvpulse.cli:main"
+"nvidia-smi+" = "nvpulse.cli:main"
+
+# Fill these in once the GitHub repo exists.
+# [project.urls]
+# Homepage = "https://github.com/<you>/nvpulse"
+# Issues = "https://github.com/<you>/nvpulse/issues"
+# Changelog = "https://github.com/<you>/nvpulse/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/nvpulse/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nvpulse"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/nvpulse", "tests", "docs", "README.md", "CHANGELOG.md", "LICENSE"]
+exclude = ["docs/images"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = [
+    "RUF001",  # box-drawing / braille glyphs are intentional
+    "RUF002",
+    "RUF003",
+    "SIM105",  # explicit try/except reads better in the UI code
+    "SIM108",
+    "RUF012",  # Textual declares BINDINGS/CSS as plain class attributes
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["nvpulse"]

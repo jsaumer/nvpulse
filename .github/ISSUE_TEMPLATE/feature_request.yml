@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest a metric, view or behaviour
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to see?
+      description: Describe the use case first, then the idea.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / prior art
+      description: How do other tools (nvitop, nvtop, btop …) handle it, if at all?

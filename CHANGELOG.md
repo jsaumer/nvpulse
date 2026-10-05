@@ -6,6 +6,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-04
+
 ### Security
 - Sanitise all untrusted text (process names, users, command lines, NVML strings):
   control, bidi and invisible characters are shown as visible escapes, and lengths
@@ -57,5 +59,6 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Passthrough to the real `nvidia-smi` for unknown flags, `--classic`, and non-TTY output.
 - `nvpulse` command, with `nvidia-smi+` as an alias.
 
-[Unreleased]: https://github.com/jsaumer/nvpulse/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jsaumer/nvpulse/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/jsaumer/nvpulse/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jsaumer/nvpulse/releases/tag/v0.1.0

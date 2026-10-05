@@ -45,9 +45,34 @@ set -as terminal-features ",*:RGB"
 
 ### High CPU use
 
-The animation runs at 20 fps by default. Lower it with `--fps 10`, or use
-`--no-anim` (or press `a`) for a static display. Polling interval (`-n`) has
-little effect on CPU.
+The animation runs at 20 fps by default, and every frame repaints the GPU cards.
+Lower it with `--fps 10`, or use `--no-anim` (or press `a`) for a static display.
+Short poll intervals cost CPU too, more so on a desktop where dozens of graphics
+clients fill the process table.
+
+Measured on an RTX 4070 SUPER desktop (one GPU, 41 GPU processes, 150x46
+terminal), as a share of one core:
+
+| Flags | CPU |
+| --- | --- |
+| default (20 fps, 1 s poll) | 19% |
+| `--fps 10` | 12% |
+| `--no-anim` | 7% |
+| `--fps 60` | 44% |
+| `-n 0.25` | 35% |
+
+### Memory, fan or clock readings differ from `nvidia-smi`
+
+- **Memory used** should agree with `nvidia-smi` to within a poll. On old drivers
+  nvpulse can read a few hundred MiB higher, because
+  those only report "used" with the driver's own reserved memory included.
+- **Fan 0% while the card is warm** is normal on cards with a zero-RPM idle mode.
+  The fan art stays still until the fans start. `nvidia-smi` prints one fan
+  figure; nvpulse lists each fan.
+- **`SM` clock jumps around at idle.** The driver drops the core clock between
+  bursts of work, so two readings a moment apart can differ a lot.
+- The process table lists every graphics client (`G`), most of them using a few
+  MiB. Sort with `s` to bring the busy ones to the top.
 
 ### `nvpulse -q` (or another flag) didn't do what I expected
 

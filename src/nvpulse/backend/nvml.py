@@ -97,6 +97,14 @@ class NvmlBackend(Backend):
                 fans.append(float(v))
         return fans
 
+    def _memory(self, h: Any) -> Any:
+        # The v1 struct folds driver-reserved memory into "used" (a few hundred MiB
+        # more than nvidia-smi shows); v2 reports it separately. Older drivers and
+        # bindings only have v1.
+        v2 = getattr(N, "nvmlMemory_v2", None)
+        mem = _safe(N.nvmlDeviceGetMemoryInfo, h, v2) if v2 is not None else None
+        return mem if mem is not None else _safe(N.nvmlDeviceGetMemoryInfo, h)
+
     def _processes(self, i: int, h: Any) -> list[ProcessInfo]:
         procs: dict[int, ProcessInfo] = {}
         for kind, getter in (
@@ -141,7 +149,7 @@ class NvmlBackend(Backend):
                 continue
             st = self._static_info(i, h)
             util = _safe(N.nvmlDeviceGetUtilizationRates, h)
-            mem = _safe(N.nvmlDeviceGetMemoryInfo, h)
+            mem = self._memory(h)
             power_mw = _safe(N.nvmlDeviceGetPowerUsage, h)
             limit_mw = _safe(N.nvmlDeviceGetEnforcedPowerLimit, h)
             enc = _safe(N.nvmlDeviceGetEncoderUtilization, h)

@@ -88,3 +88,30 @@ async def test_kill_flow_mock():
         await pilot.pause(0.6)
         pids = [p.pid for s in app._snaps for p in s.processes]
         assert pid not in pids
+
+
+async def test_process_table_updates_in_place():
+    app = NvPulse(MockBackend(1, seed=5), interval=3600)
+    async with app.run_test(size=(120, 34)) as pilot:
+        await pilot.pause(0.3)
+        table = app.query_one(ProcessTable)
+        snaps = app._snaps
+        procs = sorted(snaps[0].processes, key=lambda p: -(p.used_memory or 0))
+        assert len(procs) >= 2
+        rebuilds = []
+        table.clear = lambda *a, **k: rebuilds.append(1) or ProcessTable.clear(table, *a, **k)
+
+        # same processes, one value changed: the cell is updated, the table is not rebuilt
+        table.move_cursor(row=1, animate=False)
+        procs[0].sm_util = 77
+        table.update_processes(snaps)
+        assert not rebuilds
+        assert table.cursor_row == 1
+        assert table.get_cell(f"0:{procs[0].pid}", "sm").plain == "77%"
+
+        # a process went away: rebuild, and the cursor stays on the process it was on
+        snaps[0].processes.remove(procs[0])
+        table.update_processes(snaps)
+        assert rebuilds == [1]
+        assert table.row_count == len(procs) - 1
+        assert table.selected_process() == (0, procs[1].pid)

@@ -8,7 +8,7 @@ Repo: https://github.com/jsaumer/nvpulse (MIT). Commands: `nvpulse`, alias `nvid
 
 ```bash
 pip install -e '.[dev]'          # dev install (venv recommended)
-pytest -q                        # 66 tests; no GPU needed
+pytest -q                        # 75 tests; no GPU needed
 ruff check . && ruff format --check .
 nvpulse --mock 3                 # run with simulated GPUs
 nvpulse                          # real hardware (needs NVIDIA driver / NVML)
@@ -28,7 +28,7 @@ src/nvpulse/
   killer.py     safe signalling: pidfd pinning, start-time PID-reuse check, PID guards
   backend/      models.py (dataclasses + Backend iface), nvml.py (real), mock.py (simulated)
   ui/           render.py (pure Rich renderers), widgets.py, modals.py, app.py (Textual App)
-tests/          test_render.py, test_cli_and_app.py, test_security.py
+tests/          test_render.py, test_cli_and_app.py, test_security.py, test_nvml.py (fake pynvml)
 docs/           architecture.md, security.md, roadmap.md, troubleshooting.md, images/
 ```
 

@@ -346,6 +346,7 @@ def _center(t: Text, width: int) -> Text:
 # =============================================================== process table
 SORTS = ("vram", "sm", "pid", "gpu")
 SORT_LABEL = {"vram": "VRAM", "sm": "SM%", "pid": "PID", "gpu": "GPU"}
+COLUMNS = ("gpu", "pid", "user", "type", "sm", "vram", "cmd")
 
 
 class ProcessTable(DataTable):
@@ -359,6 +360,7 @@ class ProcessTable(DataTable):
         super().__init__(cursor_type="row", zebra_stripes=True, **kw)
         self.sort_key = "vram"
         self.gpu_totals: dict[int, int] = {}
+        self._shown: dict[str, tuple[Text, ...]] = {}  # row key -> cells currently in the table
 
     def on_mount(self) -> None:
         self.add_column("GPU", key="gpu", width=3)
@@ -382,9 +384,40 @@ class ProcessTable(DataTable):
         }[self.sort_key]
         return sorted(procs, key=key)
 
+    def _cells(self, p: ProcessInfo) -> tuple[Text, ...]:
+        total = self.gpu_totals.get(p.gpu_index) or 0
+        pct = 100.0 * p.used_memory / total if (p.used_memory is not None and total) else None
+        vram = R.gauge(8, pct, R.MEM_GRAD, solid=True)
+        vram.append(f" {R.fmt_bytes(p.used_memory):>11}", Style(color=R.TEXT))
+        sm = Text(
+            _pct(p.sm_util) if p.sm_util is not None else "—", style=R.gradient(R.UTIL_GRAD, (p.sm_util or 0) / 100)
+        )
+        kind_color = {"C": "#58a6ff", "G": "#d2a8ff", "C+G": "#ffa657"}.get(p.kind, R.TEXT)
+        return (
+            Text(str(p.gpu_index), style=R.ACCENT),
+            Text(str(p.pid), style=R.TEXT),
+            Text(clean(p.user, 10), style=R.LABEL),
+            Text(p.kind, style=kind_color),
+            sm,
+            vram,
+            Text(clean(p.cmdline or p.name, 1024), style=R.TEXT, overflow="ellipsis", no_wrap=True),
+        )
+
     def update_processes(self, snaps: list[GpuSnapshot]) -> None:
         self.gpu_totals = {s.index: s.mem_total or 0 for s in snaps}
         procs = self._sorted([p for s in snaps for p in s.processes])
+        rows = {f"{p.gpu_index}:{p.pid}": self._cells(p) for p in procs}
+
+        # Same processes in the same order (the usual case): touch only the cells that
+        # changed. A rebuild re-renders every visible row and resets the scroll position,
+        # which costs real CPU on a desktop with dozens of graphics clients.
+        if list(rows) == list(self._shown):
+            for key, cells in rows.items():
+                for col, old, new in zip(COLUMNS, self._shown[key], cells, strict=True):
+                    if new != old:
+                        self.update_cell(key, col, new)
+            self._shown = rows
+            return
 
         selected = None
         if self.row_count and 0 <= self.cursor_row < self.row_count:
@@ -394,25 +427,9 @@ class ProcessTable(DataTable):
                 selected = None
 
         self.clear()
-        for p in procs:
-            total = self.gpu_totals.get(p.gpu_index) or 0
-            pct = 100.0 * p.used_memory / total if (p.used_memory is not None and total) else None
-            vram = R.gauge(8, pct, R.MEM_GRAD, solid=True)
-            vram.append(f" {R.fmt_bytes(p.used_memory):>11}", Style(color=R.TEXT))
-            sm = Text(
-                _pct(p.sm_util) if p.sm_util is not None else "—", style=R.gradient(R.UTIL_GRAD, (p.sm_util or 0) / 100)
-            )
-            kind_color = {"C": "#58a6ff", "G": "#d2a8ff", "C+G": "#ffa657"}.get(p.kind, R.TEXT)
-            self.add_row(
-                Text(str(p.gpu_index), style=R.ACCENT),
-                Text(str(p.pid), style=R.TEXT),
-                Text(clean(p.user, 10), style=R.LABEL),
-                Text(p.kind, style=kind_color),
-                sm,
-                vram,
-                Text(clean(p.cmdline or p.name, 1024), style=R.TEXT, overflow="ellipsis", no_wrap=True),
-                key=f"{p.gpu_index}:{p.pid}",
-            )
+        for key, cells in rows.items():
+            self.add_row(*cells, key=key)
+        self._shown = rows
         if selected is not None:
             try:
                 self.move_cursor(row=self.get_row_index(selected), animate=False)

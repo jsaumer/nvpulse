@@ -24,12 +24,20 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CI: least-privilege token, SHA-pinned actions, `persist-credentials: false`,
   `pip-audit` job, Dependabot.
 
+### Fixed
+- VRAM "used" now matches `nvidia-smi`. It included the memory the driver reserves
+  for itself, which read a few hundred MiB high on real hardware.
+- The process table no longer scrolls back to the selected row on every poll when
+  you have scrolled away from it.
+
 ### Added
 - `--read-only` flag, and **ROOT** / **READ-ONLY** header badges.
 - `SECURITY.md` and `docs/security.md`.
 
 ### Changed
 - Minimum Textual version raised to 4.0. Older versions fail at runtime.
+- The process table updates changed cells in place instead of being rebuilt on
+  every poll, which lowers CPU use at short poll intervals.
 
 ## [0.1.0] - 2026-10-04
 

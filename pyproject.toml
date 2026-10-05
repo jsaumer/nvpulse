@@ -47,11 +47,10 @@ dev = [
 nvpulse = "nvpulse.cli:main"
 "nvidia-smi+" = "nvpulse.cli:main"
 
-# Fill these in once the GitHub repo exists.
-# [project.urls]
-# Homepage = "https://github.com/<you>/nvpulse"
-# Issues = "https://github.com/<you>/nvpulse/issues"
-# Changelog = "https://github.com/<you>/nvpulse/blob/main/CHANGELOG.md"
+[project.urls]
+Homepage = "https://github.com/jsaumer/nvpulse"
+Issues = "https://github.com/jsaumer/nvpulse/issues"
+Changelog = "https://github.com/jsaumer/nvpulse/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "src/nvpulse/__init__.py"

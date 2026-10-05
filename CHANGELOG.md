@@ -57,5 +57,5 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Passthrough to the real `nvidia-smi` for unknown flags, `--classic`, and non-TTY output.
 - `nvpulse` command, with `nvidia-smi+` as an alias.
 
-[Unreleased]: https://github.com/OWNER/nvpulse/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/OWNER/nvpulse/releases/tag/v0.1.0
+[Unreleased]: https://github.com/jsaumer/nvpulse/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/jsaumer/nvpulse/releases/tag/v0.1.0

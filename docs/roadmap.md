@@ -44,7 +44,8 @@ In this order:
       close the detail view repeatedly under fast polling; send SIGTERM and
       SIGHUP and confirm the terminal is restored; exercise passthrough,
       including a wrapper `nvidia-smi` on `PATH`; and measure CPU at the default
-      settings, `--no-anim` and a short poll interval
+      settings, `--no-anim` and a short poll interval. Rough scripts for most of
+      this are in `scripts/hwcheck-drafts/`
 - [ ] Run that check on more hardware. Covered so far: one consumer desktop card
       (RTX 4070 SUPER, zero-RPM idle fans). Still open: multi-GPU, workstation,
       datacenter, a real container host (the UNIT column is only tested against

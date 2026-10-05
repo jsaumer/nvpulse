@@ -14,6 +14,7 @@ nvpulse --mock 3                 # run with simulated GPUs
 nvpulse                          # real hardware (needs NVIDIA driver / NVML)
 nvpulse --dump                   # one anonymised JSON snapshot (good source for test fixtures)
 nvpulse --once                   # one plain snapshot, no TUI (quick check without a terminal)
+python scripts/hwcheck-drafts/compare_smi.py   # real-GPU checks (see that folder's README); drafts, not CI
 python scripts/make_screenshots.py [--gif]   # regenerate docs/images (gif needs playwright + pillow; uses system Chrome if present)
 ```
 

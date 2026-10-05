@@ -22,6 +22,10 @@ but only when started by hand from a version tag; tags and GitHub releases never
 trigger it. nvpulse is not on PyPI: people install from GitHub at a tag, and the
 README's install line carries the current tag. Release steps are in `CONTRIBUTING.md`.
 
+**The repository is private until further notice.** Don't publish to PyPI or run
+the release workflow, and keep public-facing work under "If the project goes
+public" in `docs/roadmap.md`.
+
 ## Layout
 
 ```

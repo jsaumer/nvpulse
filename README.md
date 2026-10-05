@@ -64,7 +64,7 @@ has braille glyphs; most modern terminals qualify.
 
 ```bash
 # straight from GitHub, pinned to a release (see Releases for the latest tag)
-pipx install git+https://github.com/jsaumer/nvpulse.git@v0.3.0
+pipx install git+https://github.com/jsaumer/nvpulse.git@v0.3.1
 
 # or from a clone of this repo
 pipx install .
@@ -99,7 +99,7 @@ nvpulse --dump             # one snapshot as JSON, for bug reports (no names or 
 `--once` looks like this (here with `--mock 2`):
 
 ```text
-nvpulse v0.3.0   Driver 560.35.03 (mock) · CUDA 12.6 · desktop · 2 GPUs · 2026-10-05 13:00:33
+nvpulse v0.3.1   Driver 560.35.03 (mock) · CUDA 12.6 · desktop · 2 GPUs · 2026-10-05 13:00:33
 
 GPU 0 · GeForce RTX 4090   0000:01:00.0 · P2 · PCIe 4.0 x16
   GPU █████████████████████░░░ 89%

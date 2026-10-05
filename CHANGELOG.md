@@ -6,6 +6,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-05
+
 ### Changed
 - `--help` and the documentation describe nvpulse as what it is: a local tool
   that shows the machine it runs on and never connects to another one.
@@ -151,7 +153,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Passthrough to the real `nvidia-smi` for unknown flags, `--classic`, and non-TTY output.
 - `nvpulse` command, with `nvidia-smi+` as an alias.
 
-[Unreleased]: https://github.com/jsaumer/nvpulse/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/jsaumer/nvpulse/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/jsaumer/nvpulse/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jsaumer/nvpulse/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jsaumer/nvpulse/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/jsaumer/nvpulse/compare/v0.1.0...v0.1.1

@@ -6,6 +6,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-05
+
 ### Added
 - **GPU detail view.** Press `Enter` (for the selected process's GPU) or click a
   card: tall history graphs for utilisation, memory, power and temperature, plus
@@ -101,6 +103,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Passthrough to the real `nvidia-smi` for unknown flags, `--classic`, and non-TTY output.
 - `nvpulse` command, with `nvidia-smi+` as an alias.
 
-[Unreleased]: https://github.com/jsaumer/nvpulse/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/jsaumer/nvpulse/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jsaumer/nvpulse/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/jsaumer/nvpulse/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jsaumer/nvpulse/releases/tag/v0.1.0

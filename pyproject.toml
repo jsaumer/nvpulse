@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "Jayson" }]
+authors = [{ name = "Jayson Saumer", email = "jsaumer@gmail.com" }]
 keywords = ["gpu", "nvidia", "nvml", "monitoring", "tui", "terminal", "nvidia-smi", "textual"]
 classifiers = [
     "Development Status :: 3 - Alpha",

@@ -32,3 +32,6 @@ snapshot_report.html
 *.swp
 .DS_Store
 Thumbs.db
+
+# Local handoff notes between Claude sessions
+HANDOFF.md

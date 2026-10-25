@@ -81,9 +81,8 @@ In this order:
 - **Process tree view.** Parent / child rows rarely mean much for GPU processes,
   and totals per user and per unit answer the useful part.
 
-## If the project goes public
-The repository is private for now, and people with access install from GitHub
-at a tag. These only matter if that changes:
+## Now that the project is public
+The repository is public, and people install from GitHub at a tag. Still to do:
 - Turn on GitHub's private vulnerability reporting (`SECURITY.md` points to it)
   and branch protection on `main`
 - Decide on PyPI. The release workflow exists and only runs by hand

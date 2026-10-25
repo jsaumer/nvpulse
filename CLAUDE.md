@@ -26,9 +26,10 @@ but only when started by hand from a version tag; tags and GitHub releases never
 trigger it. nvpulse is not on PyPI: people install from GitHub at a tag, and the
 README's install line carries the current tag. Release steps are in `CONTRIBUTING.md`.
 
-**The repository is private until further notice.** Don't publish to PyPI or run
-the release workflow, and keep public-facing work under "If the project goes
-public" in `docs/roadmap.md`.
+**The repository is public (since October 2026).** PyPI is still undecided: don't
+publish there or run the release workflow without the owner's go-ahead. Follow-up
+work from going public is listed under "Now that the project is public" in
+`docs/roadmap.md`.
 
 **Where things stand (after v0.3.0).** The owner is running 0.3 to collect
 feedback before more features. Fixes go out as 0.3.x. The next planned work is

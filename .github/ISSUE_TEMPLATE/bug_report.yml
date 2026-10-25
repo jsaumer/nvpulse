@@ -24,10 +24,22 @@ body:
     validations:
       required: true
   - type: textarea
+    id: dump
+    attributes:
+      label: Snapshot (`nvpulse --dump`)
+      description: |
+        Paste the output of `nvpulse --dump`, run while the problem is showing if you can.
+        It covers versions, driver and every reading from each GPU, and leaves out host names,
+        GPU UUIDs, PIDs, user names and command lines, so it is safe to post here.
+        Have a look before pasting if you want to be sure.
+      render: json
+  - type: textarea
     id: gpus
     attributes:
       label: GPUs and driver
-      description: Output of `nvidia-smi -L` and the driver version from `nvidia-smi`.
+      description: |
+        Only needed if `--dump` doesn't work: the GPU model(s) and the driver version from `nvidia-smi`.
+        Please leave out the GPU UUIDs that `nvidia-smi -L` prints.
       render: text
   - type: input
     id: terminal

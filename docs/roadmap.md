@@ -87,5 +87,3 @@ The repository is public, and people install from GitHub at a tag. Still to do:
   and branch protection on `main`
 - Decide on PyPI. The release workflow exists and only runs by hand
 - Packaging: AUR, Homebrew (Linuxbrew), standalone zipapp
-- An issue template that asks for `nvpulse --dump` output
-- Rewrite the reporting section of `SECURITY.md` for public use

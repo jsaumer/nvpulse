@@ -13,10 +13,13 @@ nvpulse is pre-1.0. Security fixes go into the latest release only.
 
 Please **don't open a public issue** for security problems.
 
-The repository is currently private, so report directly to the maintainer at
-the address in `pyproject.toml`. (GitHub's private vulnerability reporting,
-**Security → Report a vulnerability**, only exists for public repositories; it
-becomes the route if this one is opened up.) Include:
+Report it privately instead, either way works:
+
+- through GitHub: the repository's **Security** tab → **Report a vulnerability**
+  ([direct link](https://github.com/jsaumer/nvpulse/security/advisories/new))
+- by email to the maintainer, at the address in `pyproject.toml`
+
+Include:
 
 - what an attacker can do and under which conditions (local user? needs root?)
 - steps or a proof of concept (a crafted process name, a PATH layout, …)
